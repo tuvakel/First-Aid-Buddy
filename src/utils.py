@@ -99,16 +99,13 @@ def testo_to_utf8(testo, mapping = mapping):
     return testo
 
 
-def transcribe_audio(llm, audio_file_path):
-    """
-    Transcribe audio using Groq's Whisper implementation.
-    """
+def transcribe_audio(llm, llm_audio_model_name, audio_file_path, trscb_message):
     try:
         with open(audio_file_path, "rb") as file:
             transcription = llm.audio.transcriptions.create(
                 file=(os.path.basename(audio_file_path), file.read()),
-                model="whisper-large-v3",
-                prompt="""L'audio proviene da una persona che descrive un'emergenza medica o una situazione di primo soccorso. La persona potrebbe menzionare sintomi, lesioni o manovre di primo soccorso che richiedono assistenza (punture, ustioni, ferite, svenimenti, soffocamenti, etc.). L'obiettivo è fornire una trascrizione chiara e accurata per aiutare nell'analisi della situazione e nella fornitura di istruzioni di primo soccorso.""",
+                model=llm_audio_model_name,
+                prompt=trscb_message,
                 response_format="text",
                 language="it",
             )
@@ -119,9 +116,6 @@ def transcribe_audio(llm, audio_file_path):
     
 
 def save_uploaded_audio(audio_bytes, output_filename):
-    """
-    Salva un file audio fornito come bytes in formato WAV.
-    """
     with open(output_filename, "wb") as f:
         f.write(audio_bytes)
 

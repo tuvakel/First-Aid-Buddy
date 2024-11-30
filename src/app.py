@@ -1,9 +1,12 @@
 import streamlit as st
 from utils import *
+import tempfile
+
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
 llm_text_model_name = "llama3-70b-8192"
+llm_audio_model_name = "whisper-large-v3"
 llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 
@@ -34,28 +37,37 @@ def main():
     # User query input
     query = ""
     image_base64 = ""
+    audio_value = ""
 
     query = st.chat_input("Descrivi il problema o la situazione di emergenza")
-    
-    # Conditionally handle image upload based on compliance choice
+    audio_value = st.audio_input("Parla col tuo assistente (opzionale)")
+
     if allow_images:
         captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
         if captured_image:
             image_base64 = convert_image_to_base64(captured_image, resize=50)
 
-    if query or (query and image_base64):
+    if (query or (query and image_base64)) or (audio_value or (audio_value and image_base64)):
         sys_message_template = load_template("templates/sys_message_template.jinja")
         sys_message = sys_message_template.render()
+        trscb_message_template = load_template("templates/trscb_message_template.jinja")
+        trscb_message = trscb_message_template.render()
+        
+        if audio_value:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
+                temp_audio_path = save_uploaded_audio(audio_value.getvalue(), temp_audio_file.name)
+            query = transcribe_audio(llm, llm_audio_model_name, temp_audio_path, trscb_message)
+
         ctx_message_template = load_template("templates/ctx_message_template.jinja")
         ctx_message = ctx_message_template.render(user_request=query)
-
+        
         # Display user message in chat message container
         with st.chat_message("user"):
             if query:
                 st.markdown(f"**Testo:** {query}")
             if image_base64:
                 st.markdown("**Immagine catturata**")
-
+            
         # Call the LLM with the Jinja prompt and DataFrame context
         with st.chat_message("assistant"):        
             if image_base64 == "":
@@ -75,3 +87,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
