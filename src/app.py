@@ -5,32 +5,23 @@ import geocoder
 import hashlib
 
 
-# Get location
-location = geocoder.ip('me')
-
-# Decompose the location object into lat and lon
-if location.latlng:
-    lat, lon = location.latlng  # This gives us latitude and longitude from the latlng list
-else:
-    lat, lon = None, None 
-location_dict = {"lat": lat, "lon": lon}
-
-# Initialize the LLM with the Google API key from secrets
-llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
-llm_text_model_name = "llama3-70b-8192"
-llm_audio_model_name = "whisper-large-v3"
-# llm_vision_model_name = "llama-3.2-11b-vision-preview"
-
-
 # Hash session ID using hashlib
 if 'session_id' not in st.session_state:
     session_id = hashlib.sha256(str(datetime.now()).encode()).hexdigest()
     st.session_state.session_id = session_id
 else:
     session_id = st.session_state.session_id
-    
+
+# Get location
+location = geocoder.ip('me')
 # Get geographical location of the user
 user_location = location.latlng if location.latlng else None
+
+# Initialize the LLM with the Google API key from secrets
+llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
+llm_text_model_name = "llama3-70b-8192"
+llm_audio_model_name = "whisper-large-v3"
+# llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 # GCS client to store session data
 gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"])
@@ -112,7 +103,7 @@ def main():
         # Save session data to GCS
         bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
         session_filename = create_session_filename(session_id)
-        write_session_to_gcs(session_id, location_dict, query, response, bucket_name, session_filename, gcs_client)
+        write_session_to_gcs(session_id, user_location, query, response, bucket_name, session_filename, gcs_client)
 
 
 if __name__ == "__main__":
