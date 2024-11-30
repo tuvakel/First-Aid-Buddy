@@ -117,7 +117,7 @@ def transcribe_audio(llm, audio_file_path):
         print(f"An error occurred: {str(e)}")
         return None
     
-    
+
 def save_uploaded_audio(audio_bytes, output_filename):
     """
     Salva un file audio fornito come bytes in formato WAV.
