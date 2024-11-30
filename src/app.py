@@ -35,9 +35,9 @@ def main():
     # captured_image = st.camera_input("Cattura un'immagine (opzionale)")
     captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
     if captured_image:
-        image_base64 = convert_image_to_base64(captured_image)
+        image_base64 = convert_image_to_base64(captured_image, resize=50)
 
-    if query or image_base64:
+    if query and image_base64:
         sys_message_template = load_template("templates/sys_message_template.jinja")
         sys_message = sys_message_template.render()
         ctx_message_template = load_template("templates/ctx_message_template.jinja")

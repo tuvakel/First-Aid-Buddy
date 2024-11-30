@@ -1,11 +1,28 @@
 from groq import Groq
 from jinja2 import Environment, FileSystemLoader
+from PIL import Image
+from io import BytesIO
 import base64, os
 
 
-def convert_image_to_base64(image_file):
-    img_bytes = image_file.read()
-    return base64.b64encode(img_bytes).decode('utf-8')
+def resize_image(image_file, new_width):
+    with Image.open(image_file) as img:
+        aspect_ratio = img.height / img.width
+        new_height = int(new_width * aspect_ratio)
+        resized_img = img.resize((new_width, new_height))
+        img_byte_arr = BytesIO()
+        resized_img.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        return img_byte_arr
+
+
+def convert_image_to_base64(image_file, resize: None):
+    if resize: 
+        resized_image = resize_image(image_file, new_width=resize)
+    else: resized_image = image_file
+    img_bytes = resized_image.read()
+    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+    return base64_image
 
 
 def load_template(template_path: str) -> str:
