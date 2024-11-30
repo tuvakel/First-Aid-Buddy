@@ -1,6 +1,7 @@
 venv
 .env
 */.streamlit
+*/output.*
 __pycache__
 useless
 img

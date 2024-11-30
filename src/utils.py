@@ -119,6 +119,14 @@ def save_uploaded_audio(audio_bytes, output_filename):
     return output_filename
 
 
+def text_to_speech(text: str, language = 'it', audio_file = "output.mp3"):
+    # Converte il testo in audio
+    tts = gTTS(text=text, lang=language, slow=False)
+    # Salva l'audio in un file
+    tts.save(audio_file)
+    return audio_file
+
+
 # 1. Initialize GCS Client
 def initialize_gcs_client(SERVICE_ACCOUNT_KEY):
     # Load the service account JSON
@@ -132,15 +140,6 @@ def initialize_gcs_client(SERVICE_ACCOUNT_KEY):
 def create_session_filename(session_id: str):
     # Create a filename based on session_id
     return f"session_{session_id}.json"
-
-def text_to_speech(text: str, language = 'it', audio_file = "output.mp3"):
-    # Converte il testo in audio
-    tts = gTTS(text=text, lang=language, slow=False)
-
-    # Salva l'audio in un file
-    tts.save(audio_file)
-    print(f"Audio salvato come {audio_file}")
-    return audio_file
 
 # 3. Write a new session data file to Google Cloud Storage (GCS)
 def write_session_to_gcs(session_id: str, user_location: list, query: str, response: str, bucket_name: str, session_filename: str, client: storage.Client):
