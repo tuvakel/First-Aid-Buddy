@@ -24,26 +24,36 @@ def main():
     """)
 
     st.title("LLAMA FIRST AID 🦙")
-    template_path = "sys_message_template.jinja"  #"./src/prompt_template.jinja"
 
     # User query input
     query = ""
     image_base64 = ""
 
     query = st.chat_input("Descrivi il problema o la situazione di emergenza")
+    
+    # Per immagine live cambiare file_uploader con camera_input
+    # captured_image = st.camera_input("Cattura un'immagine (opzionale)")
+    captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
+    if captured_image:
+        image_base64 = convert_image_to_base64(captured_image)
 
-
-    if query:
-        # Load the Jinja template
-        template = load_template(template_path)
-        sys_message = template.render()
+    if query or image_base64:
+        sys_message_template = load_template("templates/sys_message_template.jinja")
+        sys_message = sys_message_template.render()
 
         # Display user message in chat message container
         with st.chat_message("user"):
-            st.markdown(query)
+            if query:
+                st.markdown(f"**Testo:** {query}")
+            #if audio_text:
+            #    st.markdown(f"**Audio:** {audio_text}")
+            if image_base64:
+                st.markdown("**Immagine catturata**")
+
+        
         # Call the LLM with the Jinja prompt and DataFrame context
         with st.chat_message("assistant"):        
-            stream = call_llm(llm, llm_model_name, sys_message, f'"{query}"')
+            stream = call_llm(llm=llm, llm_model_name=llm_model_name, sys_message=sys_message, context_message=f'"{query}"', base64_image=image_base64)
 
             # Initialize an empty string to store the full response as it is built
             response = ""
