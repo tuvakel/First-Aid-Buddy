@@ -122,6 +122,7 @@ def main():
             #if response.strip():
             #    audio_path = text_to_speech(response, language="it")
             #    st.audio(audio_path, format="audio/mp3", start_time=0)
+            
         # Save session data to GCS
         bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
         session_filename = create_session_filename(session_id)
