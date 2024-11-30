@@ -2,7 +2,10 @@ from groq import Groq
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from io import BytesIO
-import base64, os
+import base64
+import json
+import os
+from datetime import datetime
 
 
 def resize_image(image_file, new_width):
@@ -120,3 +123,36 @@ def save_uploaded_audio(audio_bytes, output_filename):
         f.write(audio_bytes)
 
     return output_filename
+
+
+# Function to save the session data to a JSON file
+def save_session_data(file_path, session_id, location, query, response):
+    # Check if the file exists and load existing data
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            all_sessions = json.load(file)
+    else:
+        all_sessions = []
+    
+    # Check if the session ID already exists in the data
+    session_exists = False
+    for session in all_sessions:
+        if session["session_id"] == session_id:
+            # Append query and response to the existing session's queries_responses list
+            session["queries_responses"].append({"query": query, "response": response})
+            session_exists = True
+            break
+    
+    # If session does not exist, create a new session entry
+    if not session_exists:
+        new_session = {
+            "session_id": session_id,
+            "location": location,
+            "queries_responses": [{"query": query, "response": testo_to_utf8(response)}],
+            "timestamp": datetime.now().isoformat()  # Timestamp when the session is first created
+        }
+        all_sessions.append(new_session)
+    
+    # Save the updated data back to the file with UTF-8 encoding
+    with open(file_path, "w", encoding="utf-8") as file:
+        json.dump(all_sessions, file, indent=4, ensure_ascii=False)

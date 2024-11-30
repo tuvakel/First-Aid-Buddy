@@ -1,13 +1,35 @@
 import streamlit as st
 from utils import *
 import tempfile
+import geocoder
+import hashlib
 
+
+# Get location
+location = geocoder.ip('me')
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
 llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
 llm_vision_model_name = "llama-3.2-11b-vision-preview"
+
+
+# Ensure the directory exists
+session_data_dir = '../data/history'
+if not os.path.exists(session_data_dir):
+    os.makedirs(session_data_dir)
+session_data_path = os.path.join(session_data_dir, 'session_data.json')
+
+# Hash session ID using hashlib
+if 'session_id' not in st.session_state:
+    session_id = hashlib.sha256(str(datetime.now()).encode()).hexdigest()
+    st.session_state.session_id = session_id
+else:
+    session_id = st.session_state.session_id
+    
+# Get geographical location of the user
+user_location = location.latlng if location.latlng else None
 
 
 # Main function
@@ -83,6 +105,9 @@ def main():
                 clean_chunk = testo_to_utf8(chunk_text)
                 response += clean_chunk
                 line_placeholder.markdown(response, unsafe_allow_html=True)
+        
+        # Save session data (query and response)
+        save_session_data(session_data_path, session_id, user_location, query, response)
 
 
 if __name__ == "__main__":
