@@ -8,6 +8,13 @@ import hashlib
 # Get location
 location = geocoder.ip('me')
 
+# Decompose the location object into lat and lon
+if location.latlng:
+    lat, lon = location.latlng  # This gives us latitude and longitude from the latlng list
+else:
+    lat, lon = None, None 
+location_dict = {"lat": lat, "lon": lon}
+
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_text_model_name = "llama3-70b-8192"
@@ -105,7 +112,7 @@ def main():
         # Save session data to GCS
         bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
         session_filename = create_session_filename(session_id)
-        write_session_to_gcs(session_id, query, response, bucket_name, session_filename, gcs_client)
+        write_session_to_gcs(session_id, location_dict, query, response, bucket_name, session_filename, gcs_client)
 
 
 if __name__ == "__main__":

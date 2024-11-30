@@ -8,7 +8,6 @@ import os
 from google.cloud import storage
 from google.auth import credentials
 from datetime import datetime
-import streamlit as st
 
 
 def resize_image(image_file, new_width):
@@ -143,7 +142,7 @@ def create_session_filename(session_id: str):
     return f"session_{session_id}.json"
 
 # 3. Write a new session data file to Google Cloud Storage (GCS)
-def write_session_to_gcs(session_id: str, user_query: str, response: str, bucket_name: str, session_filename: str, client: storage.Client):
+def write_session_to_gcs(session_id: str, location: dict, user_query: str, response: str, bucket_name: str, session_filename: str, client: storage.Client):
     bucket = client.get_bucket(bucket_name)
     blob = bucket.blob(session_filename)
 
@@ -170,7 +169,7 @@ def write_session_to_gcs(session_id: str, user_query: str, response: str, bucket
             # If the session doesn't exist, create a new session entry
             new_session = {
                 "session_id": session_id,
-                # "location": location,
+                "location": location,
                 "timestamp": datetime.now().isoformat(),
                 "user_queries": [user_query],  # List of user queries
                 "responses": [response]        # List of responses
