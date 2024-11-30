@@ -1,10 +1,11 @@
 first_aid_response_task:
   description: >
-    Respond to user queries with actionable first aid advice. Ensure safety, clarity, and relevance to the user's emergency.
+    Respond to user query with actionable first aid advice. Ensure safety, clarity, and relevance to the user's emergency.
     Your final answer must include a step-by-step guide and a reliable YouTube video link if a maneuver is recommended.
+    This is the: {query}
   expected_output: >
     A step-by-step guide tailored to the user's query, including:
     - A clear description of the required actions.
-    - A reliable YouTube video link (if applicable) demonstrating any suggested maneuver.
+    - [Optional] Include a reliable YouTube video link from the 'First Aid for Life' YouTube channel that demonstrates any suggested maneuver or advice related to the user query. Use the `youtube_tool` by passing a tuple as an argument, structured as follows: (list of English keywords related to the user query, number of results to retrieve). For example: `(['bee sting', 1])`. If no suitable video is found, omit the link entirely and do not mention its absence in the response.
   tools: []
   agent: first_aid_chatbot

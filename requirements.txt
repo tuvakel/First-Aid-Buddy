@@ -11,7 +11,8 @@ cachetools==5.5.0
 certifi==2024.8.30
 charset-normalizer==3.4.0
 click==8.1.7
-crewai==0.5.0
+crewai
+crewai[tools]
 dataclasses-json==0.6.7
 decorator==5.1.1
 distro==1.9.0
