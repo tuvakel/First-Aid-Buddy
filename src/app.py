@@ -73,9 +73,6 @@ def main():
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
                 temp_audio_path = save_uploaded_audio(audio_value.getvalue(), temp_audio_file.name)
             query = transcribe_audio(llm, llm_audio_model_name, temp_audio_path, trscb_message)
-
-        ctx_message_template = load_template("templates/ctx_message_template.jinja")
-        ctx_message = ctx_message_template.render(user_request=query)
         
         # # Display user message in chat message container
         # with st.chat_message("user"):
