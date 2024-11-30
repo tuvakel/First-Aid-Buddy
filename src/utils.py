@@ -5,7 +5,10 @@ from io import BytesIO
 import base64
 import json
 import os
+from google.cloud import storage
+from google.auth import credentials
 from datetime import datetime
+import streamlit as st
 
 
 def resize_image(image_file, new_width):
@@ -125,34 +128,43 @@ def save_uploaded_audio(audio_bytes, output_filename):
     return output_filename
 
 
-# Function to save the session data to a JSON file
-def save_session_data(file_path, session_id, location, query, response):
-    # Check if the file exists and load existing data
-    if os.path.exists(file_path):
-        with open(file_path, "r") as file:
-            all_sessions = json.load(file)
-    else:
-        all_sessions = []
+# 1. Initialize GCS Client
+def initialize_gcs_client(SERVICE_ACCOUNT_KEY):
+    # If the service account key is base64-encoded, decode it
+    if SERVICE_ACCOUNT_KEY.startswith('eyJ'):
+        SERVICE_ACCOUNT_KEY = base64.b64decode(SERVICE_ACCOUNT_KEY).decode("utf-8")
     
-    # Check if the session ID already exists in the data
-    session_exists = False
-    for session in all_sessions:
-        if session["session_id"] == session_id:
-            # Append query and response to the existing session's queries_responses list
-            session["queries_responses"].append({"query": query, "response": response})
-            session_exists = True
-            break
+    # Load the service account JSON
+    service_account_info = json.loads(SERVICE_ACCOUNT_KEY)
     
-    # If session does not exist, create a new session entry
-    if not session_exists:
-        new_session = {
-            "session_id": session_id,
-            "location": location,
-            "queries_responses": [{"query": query, "response": testo_to_utf8(response)}],
-            "timestamp": datetime.now().isoformat()  # Timestamp when the session is first created
-        }
-        all_sessions.append(new_session)
+    # Initialize the storage client with the service account credentials
+    client = storage.Client.from_service_account_info(service_account_info)
+    return client
+
+# 2. Create a unique session file name using session_id
+def create_session_filename(session_id: str):
+    # Create a filename based on session_id
+    return f"session_{session_id}.json"
+
+# 3. Write a new session data file to Google Cloud Storage (GCS)
+def write_session_to_gcs(session_data: dict, bucket_name: str, session_filename: str, client: storage.Client):
+    bucket = client.get_bucket(bucket_name)
+    blob = bucket.blob(session_filename)
     
-    # Save the updated data back to the file with UTF-8 encoding
-    with open(file_path, "w", encoding="utf-8") as file:
-        json.dump(all_sessions, file, indent=4, ensure_ascii=False)
+    try:
+        # Convert session data to a JSON string and upload it to GCS
+        content_str = json.dumps(session_data, indent=4)
+        blob.upload_from_string(content_str, content_type='application/json')
+        print(f"Session file {session_filename} uploaded successfully.")
+    except Exception as e:
+        print(f"Error writing session to GCS: {e}")
+
+# 4. Create new session data (this is an example, you'll replace with actual values)
+def create_new_session_data(session_id, location, query, response):
+    return {
+        "session_id": session_id,
+        "location": location,
+        "timestamp": datetime.now().isoformat(),
+        "user_query": query,
+        "response": response
+    }

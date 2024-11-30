@@ -15,12 +15,6 @@ llm_audio_model_name = "whisper-large-v3"
 # llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 
-# Ensure the directory exists
-session_data_dir = '../data/history'
-if not os.path.exists(session_data_dir):
-    os.makedirs(session_data_dir)
-session_data_path = os.path.join(session_data_dir, 'session_data.json')
-
 # Hash session ID using hashlib
 if 'session_id' not in st.session_state:
     session_id = hashlib.sha256(str(datetime.now()).encode()).hexdigest()
@@ -30,6 +24,9 @@ else:
     
 # Get geographical location of the user
 user_location = location.latlng if location.latlng else None
+
+# GCS client to store session data
+gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["SERVICE_ACCOUNT_KEY"])
 
 
 # Main function
@@ -105,8 +102,10 @@ def main():
                 response += clean_chunk
                 line_placeholder.markdown(response, unsafe_allow_html=True)
         
-        # Save session data (query and response)
-        save_session_data(session_data_path, session_id, user_location, query, response)
+        # Save session data to GCS
+        new_session_data = create_new_session_data(session_id, location, query, response)
+        session_filename = create_session_filename(session_id)
+        write_session_to_gcs(new_session_data, st.secrets["BUCKET_NAME"], session_filename, gcs_client)
 
 
 if __name__ == "__main__":
