@@ -130,10 +130,6 @@ def save_uploaded_audio(audio_bytes, output_filename):
 
 # 1. Initialize GCS Client
 def initialize_gcs_client(SERVICE_ACCOUNT_KEY):
-    # If the service account key is base64-encoded, decode it
-    if SERVICE_ACCOUNT_KEY.startswith('eyJ'):
-        SERVICE_ACCOUNT_KEY = base64.b64decode(SERVICE_ACCOUNT_KEY).decode("utf-8")
-    
     # Load the service account JSON
     service_account_info = json.loads(SERVICE_ACCOUNT_KEY)
     
@@ -147,24 +143,47 @@ def create_session_filename(session_id: str):
     return f"session_{session_id}.json"
 
 # 3. Write a new session data file to Google Cloud Storage (GCS)
-def write_session_to_gcs(session_data: dict, bucket_name: str, session_filename: str, client: storage.Client):
+def write_session_to_gcs(session_id: str, user_query: str, response: str, bucket_name: str, session_filename: str, client: storage.Client):
     bucket = client.get_bucket(bucket_name)
     blob = bucket.blob(session_filename)
-    
+
     try:
-        # Convert session data to a JSON string and upload it to GCS
-        content_str = json.dumps(session_data, indent=4)
-        blob.upload_from_string(content_str, content_type='application/json')
-        print(f"Session file {session_filename} uploaded successfully.")
+        # Try to download the existing content (if any)
+        try:
+            content_str = blob.download_as_text()
+            existing_data = json.loads(content_str)
+        except Exception as e:
+            # If the file doesn't exist, start with an empty list
+            existing_data = []
+
+        # Look for the session with the same session_id
+        session_found = False
+        for session in existing_data:
+            if session['session_id'] == session_id:
+                # Append the new user_query and response to the existing session
+                session['user_queries'].append(user_query)
+                session['responses'].append(response)
+                session_found = True
+                break
+        
+        if not session_found:
+            # If the session doesn't exist, create a new session entry
+            new_session = {
+                "session_id": session_id,
+                # "location": location,
+                "timestamp": datetime.now().isoformat(),
+                "user_queries": [user_query],  # List of user queries
+                "responses": [response]        # List of responses
+            }
+            existing_data.append(new_session)
+
+        # Convert the updated data back to JSON string
+        updated_content_str = json.dumps(existing_data, indent=4)
+
+        # Upload the updated content back to GCS
+        blob.upload_from_string(updated_content_str, content_type='application/json')
+        print(f"Session file {session_filename} updated successfully.")
+
     except Exception as e:
         print(f"Error writing session to GCS: {e}")
-
-# 4. Create new session data (this is an example, you'll replace with actual values)
-def create_new_session_data(session_id, location, query, response):
-    return {
-        "session_id": session_id,
-        "location": location,
-        "timestamp": datetime.now().isoformat(),
-        "user_query": query,
-        "response": response
-    }
+    

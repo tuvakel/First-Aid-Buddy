@@ -9,7 +9,7 @@ import hashlib
 location = geocoder.ip('me')
 
 # Initialize the LLM with the Google API key from secrets
-llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
+llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
 # llm_vision_model_name = "llama-3.2-11b-vision-preview"
@@ -26,7 +26,7 @@ else:
 user_location = location.latlng if location.latlng else None
 
 # GCS client to store session data
-gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["SERVICE_ACCOUNT_KEY"])
+gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"])
 
 
 # Main function
@@ -103,9 +103,9 @@ def main():
                 line_placeholder.markdown(response, unsafe_allow_html=True)
         
         # Save session data to GCS
-        new_session_data = create_new_session_data(session_id, location, query, response)
+        bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
         session_filename = create_session_filename(session_id)
-        write_session_to_gcs(new_session_data, st.secrets["BUCKET_NAME"], session_filename, gcs_client)
+        write_session_to_gcs(session_id, query, response, bucket_name, session_filename, gcs_client)
 
 
 if __name__ == "__main__":
