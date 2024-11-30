@@ -12,7 +12,7 @@ location = geocoder.ip('me')
 llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
 llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
-llm_vision_model_name = "llama-3.2-11b-vision-preview"
+# llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 
 # Ensure the directory exists
@@ -35,11 +35,10 @@ user_location = location.latlng if location.latlng else None
 # Main function
 def main():
     st.set_page_config(page_title="llama-first-aid", page_icon="🦙")
-    
-    st.sidebar.header("Modalità")
 
     # Additional toggles for fine-grained control of image upload
-    allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
+    # st.sidebar.header("Modalità")
+    # allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
 
     # Sidebar for project details
     st.sidebar.header("Dettagli")
@@ -64,10 +63,10 @@ def main():
     query = st.chat_input("Descrivi il problema o la situazione di emergenza")
     audio_value = st.audio_input("Parla col tuo assistente (opzionale)")
 
-    if allow_images:
-        captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
-        if captured_image:
-            image_base64 = convert_image_to_base64(captured_image, resize=50)
+    #if allow_images:
+    #    captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
+    #    if captured_image:
+    #        image_base64 = convert_image_to_base64(captured_image, resize=50)
 
     if (query or (query and image_base64)) or (audio_value or (audio_value and image_base64)):
         sys_message_template = load_template("templates/sys_message_template.jinja")
@@ -94,8 +93,8 @@ def main():
         with st.chat_message("assistant"):        
             if image_base64 == "":
                 stream = call_llm(llm=llm, llm_model_name=llm_text_model_name, sys_message=sys_message, context_message=ctx_message)
-            else: 
-                stream = call_llm(llm=llm, llm_model_name=llm_vision_model_name, sys_message=sys_message, context_message=ctx_message, base64_image=image_base64)
+            #else: 
+            #    stream = call_llm(llm=llm, llm_model_name=llm_vision_model_name, sys_message=sys_message, context_message=ctx_message, base64_image=image_base64)
 
             # Initialize an empty string to store the full response as it is built
             response = ""
