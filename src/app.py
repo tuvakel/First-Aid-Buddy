@@ -4,12 +4,8 @@ import os
 from jinja2 import Environment, FileSystemLoader
 from utils import init_LLM, testo_to_utf8
 
-# Load dotenv
-from dotenv import load_dotenv
-load_dotenv()
-
 # Initialize the LLM with the Google API key from secrets
-llm = init_LLM(API_KEY=os.getenv('GROQ_API_KEY'))
+llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
 llm_model_name = "llama3-70b-8192"
 
 
