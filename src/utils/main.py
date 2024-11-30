@@ -45,21 +45,6 @@ def init_LLM(API_KEY=None):
     return client
 
 
-def call_llm(llm:Groq, llm_model_name, temperature: float = 0.5, max_tokens: int = None, top_p: float = 0.8, stop: str = None, chat_history = []) -> str:
-    
-    response_stream = llm.chat.completions.create(
-        model=llm_model_name,
-        messages=chat_history,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        top_p=top_p,
-        stop=None,
-        stream=True
-    )
-
-    return response_stream
-
-
 
 mapping = {
     'Ã¨': 'è',

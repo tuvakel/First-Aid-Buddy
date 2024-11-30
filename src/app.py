@@ -1,5 +1,6 @@
 import streamlit as st
-from utils import *
+from utils.main import *
+from utils.crewai import * 
 import tempfile
 import geocoder
 import hashlib
@@ -19,9 +20,14 @@ user_location = location.latlng if location.latlng else None
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
-llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
 # llm_vision_model_name = "llama-3.2-11b-vision-preview"
+llm_text_model_name = "groq/llama-3.1-70b-versatile"
+crewai = init_crew(config_location="../", model_name=llm_text_model_name, 
+                       GROQ_API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"], 
+                       SERPER_API_KEY=st.secrets["SERPER"]["SERPER_API_KEY"],
+                       YOUTUBE_API_KEY=st.secrets["YOUTUBE"]["YOUTUBE_API_KEY"],
+                    )
 
 # GCS client to store session data
 gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"])
@@ -100,8 +106,8 @@ def main():
             
         # Call the LLM with the Jinja prompt and DataFrame context
         with st.chat_message("assistant"):        
-            stream = call_llm(llm=llm, llm_model_name=llm_text_model_name, chat_history=st.session_state.chat_history)
-
+            stream = crewai.kickoff(inputs={"query": query})
+            
             # Initialize an empty string to store the full response as it is built
             response = ""
             line_placeholder = st.empty()
