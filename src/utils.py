@@ -8,6 +8,7 @@ import os
 from google.cloud import storage
 from google.auth import credentials
 from datetime import datetime
+from gtts import gTTS
 
 
 def resize_image(image_file, new_width):
@@ -43,20 +44,11 @@ def init_LLM(API_KEY=None):
     return client
 
 
-def call_llm(llm, llm_model_name, sys_message: str, context_message: str, base64_image: str = None,
-            temperature: float = 0.5, max_tokens: int = None, top_p: float = 0.8, stop: str = None) -> str:
+def call_llm(llm:Groq, llm_model_name, temperature: float = 0.5, max_tokens: int = None, top_p: float = 0.8, stop: str = None, chat_history = []) -> str:
     
-    messages = [{"role": "system", "content": sys_message}, {"role": "user", "content": context_message}]
-    
-    if base64_image:
-        messages.append({
-            "role": "user",
-            "content": f"data:image/jpeg;base64,{base64_image}"
-        })
-
     response_stream = llm.chat.completions.create(
         model=llm_model_name,
-        messages=messages,
+        messages=chat_history,
         temperature=temperature,
         max_tokens=max_tokens,
         top_p=top_p,
@@ -140,6 +132,15 @@ def initialize_gcs_client(SERVICE_ACCOUNT_KEY):
 def create_session_filename(session_id: str):
     # Create a filename based on session_id
     return f"session_{session_id}.json"
+
+def text_to_speech(text: str, language = 'it', audio_file = "output.mp3"):
+    # Converte il testo in audio
+    tts = gTTS(text=text, lang=language, slow=False)
+
+    # Salva l'audio in un file
+    tts.save(audio_file)
+    print(f"Audio salvato come {audio_file}")
+    return audio_file
 
 # 3. Write a new session data file to Google Cloud Storage (GCS)
 def write_session_to_gcs(session_id: str, user_location: list, query: str, response: str, bucket_name: str, session_filename: str, client: storage.Client):

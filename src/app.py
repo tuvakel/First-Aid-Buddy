@@ -77,19 +77,33 @@ def main():
         ctx_message_template = load_template("templates/ctx_message_template.jinja")
         ctx_message = ctx_message_template.render(user_request=query)
         
-        # Display user message in chat message container
-        with st.chat_message("user"):
-            if query:
-                st.markdown(f"**Testo:** {query}")
+        # # Display user message in chat message container
+        # with st.chat_message("user"):
+        #     if query:
+        #         st.markdown(f"**Testo:** {query}")
+        #     if image_base64:
+        #         st.markdown("**Immagine catturata**")
+            
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = [{"role": "system", "content": sys_message}, {"role": "user", "content": query}]
+    
             if image_base64:
-                st.markdown("**Immagine catturata**")
+                st.session_state.chat_history.append({
+                    "role": "user",
+                    "content": f"data:image/jpeg;base64,{image_base64}"
+                })
+        else:
+            st.session_state.chat_history.append({"role": "user", "content": query})
+
+        # Mostra la cronologia della conversazione
+        for message in st.session_state.chat_history:
+            if message["role"] != 'system':
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
             
         # Call the LLM with the Jinja prompt and DataFrame context
         with st.chat_message("assistant"):        
-            if image_base64 == "":
-                stream = call_llm(llm=llm, llm_model_name=llm_text_model_name, sys_message=sys_message, context_message=ctx_message)
-            #else: 
-            #    stream = call_llm(llm=llm, llm_model_name=llm_vision_model_name, sys_message=sys_message, context_message=ctx_message, base64_image=image_base64)
+            stream = call_llm(llm=llm, llm_model_name=llm_text_model_name, chat_history=st.session_state.chat_history)
 
             # Initialize an empty string to store the full response as it is built
             response = ""
@@ -99,7 +113,10 @@ def main():
                 clean_chunk = testo_to_utf8(chunk_text)
                 response += clean_chunk
                 line_placeholder.markdown(response, unsafe_allow_html=True)
-        
+            st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
+            if response.strip():
+                audio_path = text_to_speech(response, language="it")
+                st.audio(audio_path, format="audio/mp3", start_time=0)
         # Save session data to GCS
         bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
         session_filename = create_session_filename(session_id)
