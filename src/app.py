@@ -36,7 +36,7 @@ def main():
     # allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
 
     # Sidebar for project details
-    st.sidebar.header("Dettagli")
+    st.sidebar.header("**Dettagli**")
     st.sidebar.write(""" 
         Sei pronto a intervenire in un'emergenza sanitaria?
          
@@ -111,6 +111,14 @@ def main():
                 response += clean_chunk
                 line_placeholder.markdown(response, unsafe_allow_html=True)
             st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
+    
+            # Extract YouTube link from the response and embed it
+            youtube_link = extract_youtube_link(response)
+            if youtube_link:
+                video_url = youtube_link.replace("watch?v=", "embed/")
+                youtube_embed = f'<iframe width="560" height="315" src="{video_url}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
+                line_placeholder.markdown(f"{response}<br>{youtube_embed}", unsafe_allow_html=True)
+
             #if response.strip():
             #    audio_path = text_to_speech(response, language="it")
             #    st.audio(audio_path, format="audio/mp3", start_time=0)

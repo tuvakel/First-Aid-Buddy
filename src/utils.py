@@ -5,6 +5,7 @@ from io import BytesIO
 import base64
 import json
 import os
+import re
 from google.cloud import storage
 from google.auth import credentials
 from datetime import datetime
@@ -125,6 +126,14 @@ def text_to_speech(text: str, language = 'it', audio_file = "output.mp3"):
     # Salva l'audio in un file
     tts.save(audio_file)
     return audio_file
+
+
+def extract_youtube_link(response_text):
+    youtube_url_pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+)'
+    youtube_urls = re.findall(youtube_url_pattern, response_text)
+    
+    # Return the first YouTube URL found or None if no link is found
+    return youtube_urls[0] if youtube_urls else None
 
 
 # 1. Initialize GCS Client
