@@ -1,0 +1,10 @@
+first_aid_response_task:
+  description: >
+    Respond to user queries with actionable first aid advice. Ensure safety, clarity, and relevance to the user's emergency.
+    Your final answer must include a step-by-step guide and a reliable YouTube video link if a maneuver is recommended.
+  expected_output: >
+    A step-by-step guide tailored to the user's query, including:
+    - A clear description of the required actions.
+    - A reliable YouTube video link (if applicable) demonstrating any suggested maneuver.
+  tools: []
+  agent: first_aid_chatbot
