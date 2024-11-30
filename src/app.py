@@ -40,6 +40,8 @@ def main():
     if query or image_base64:
         sys_message_template = load_template("templates/sys_message_template.jinja")
         sys_message = sys_message_template.render()
+        ctx_message_template = load_template("templates/ctx_message_template.jinja")
+        ctx_message = ctx_message_template.render(user_request=query, image_base64=image_base64)
 
         # Display user message in chat message container
         with st.chat_message("user"):
@@ -50,10 +52,10 @@ def main():
             if image_base64:
                 st.markdown("**Immagine catturata**")
 
-        
+
         # Call the LLM with the Jinja prompt and DataFrame context
         with st.chat_message("assistant"):        
-            stream = call_llm(llm=llm, llm_model_name=llm_model_name, sys_message=sys_message, context_message=f'"{query}"', base64_image=image_base64)
+            stream = call_llm(llm=llm, llm_model_name=llm_model_name, sys_message=sys_message, context_message=ctx_message)
 
             # Initialize an empty string to store the full response as it is built
             response = ""

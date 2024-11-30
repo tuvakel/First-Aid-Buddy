@@ -21,16 +21,10 @@ def init_LLM(API_KEY=None):
     return client
 
 
-def call_llm(llm, llm_model_name, sys_message: str, context_message: str, base64_image: str = "", audio_text: str = "", 
+def call_llm(llm, llm_model_name, sys_message: str, context_message: str, 
             temperature: float = 0.5, max_tokens: int = None, top_p: float = 0.8, stop: str = None) -> str:
-    # Prepare message structure
+    
     messages = [{"role": "system", "content": sys_message}, {"role": "user", "content": context_message}]
-    
-    if base64_image:
-        messages.append({"role": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}})
-    
-    #if audio_text:
-    #    messages.append({"role": "user_audio", "content": audio_text})
 
     response_stream = llm.chat.completions.create(
         model=llm_model_name,
