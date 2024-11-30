@@ -33,7 +33,7 @@ def main():
     query = st.chat_input("Descrivi il problema o la situazione di emergenza")
 
 
-    if query := st.chat_input("Come posso aiutarti"):
+    if query:
         # Load the Jinja template
         template = load_template(template_path)
         sys_message = template.render()
