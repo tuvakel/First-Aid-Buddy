@@ -1,4 +1,17 @@
 from groq import Groq
+from jinja2 import Environment, FileSystemLoader
+import base64, os
+
+
+def convert_image_to_base64(image_file):
+    img_bytes = image_file.read()
+    return base64.b64encode(img_bytes).decode('utf-8')
+
+
+def load_template(template_path: str) -> str:
+    env = Environment(loader=FileSystemLoader(os.path.dirname(template_path)))
+    template = env.get_template(os.path.basename(template_path))
+    return template
 
 
 def init_LLM(API_KEY=None):
@@ -8,19 +21,16 @@ def init_LLM(API_KEY=None):
     return client
 
 
-def call_llm(llm, llm_model_name, sys_message: str, context_message: str, base64_image: str = "", 
+def call_llm(llm, llm_model_name, sys_message: str, context_message: str, base64_image: str = "", audio_text: str = "", 
             temperature: float = 0.5, max_tokens: int = None, top_p: float = 0.8, stop: str = None) -> str:
-    if base64_image == "":
-        messages = [
-            {"role": "system", "content": sys_message},
-            {"role": "user", "content": context_message}
-        ]
-    else:
-        messages = [
-            {"role": "system", "content": sys_message},
-            {"role": "user", "content": context_message},
-            {"role": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
-        ]
+    # Prepare message structure
+    messages = [{"role": "system", "content": sys_message}, {"role": "user", "content": context_message}]
+    
+    if base64_image:
+        messages.append({"role": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}})
+    
+    #if audio_text:
+    #    messages.append({"role": "user_audio", "content": audio_text})
 
     response_stream = llm.chat.completions.create(
         model=llm_model_name,
@@ -33,6 +43,8 @@ def call_llm(llm, llm_model_name, sys_message: str, context_message: str, base64
     )
 
     return response_stream
+
+
 
 mapping = {
     'Ã¨': 'è',
@@ -60,7 +72,6 @@ mapping = {
     'Â®': '®',
     'â‚¬': '€'
 }
-
 
 def testo_to_utf8(testo, mapping = mapping):
     if testo:

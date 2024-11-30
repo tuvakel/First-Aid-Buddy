@@ -1,19 +1,9 @@
 import streamlit as st
-import pandas as pd
-import os
-from jinja2 import Environment, FileSystemLoader
-from utils import init_LLM, call_llm, testo_to_utf8
+from utils import *
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
 llm_model_name = "llama3-70b-8192"
-
-
-# Load the Jinja template from the file
-def load_template(template_path: str) -> str:
-    env = Environment(loader=FileSystemLoader(os.path.dirname(template_path)))
-    template = env.get_template(os.path.basename(template_path))
-    return template
 
 
 # Main function
@@ -33,10 +23,16 @@ def main():
         nulla al caso, con **LLAMA** ogni emergenza diventa più gestibile!
     """)
 
+    st.title("LLAMA FIRST AID 🦙")
     template_path = "sys_message_template.jinja"  #"./src/prompt_template.jinja"
 
     # User query input
-    st.title("LLAMA FIRST AID 🦙")
+    query = ""
+    image_base64 = ""
+
+    query = st.chat_input("Descrivi il problema o la situazione di emergenza")
+
+
     if query := st.chat_input("Come posso aiutarti"):
         # Load the Jinja template
         template = load_template(template_path)
