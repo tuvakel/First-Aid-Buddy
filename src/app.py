@@ -3,13 +3,19 @@ from utils import *
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ_API_KEY"])
-llm_model_name = "llama3-70b-8192"
+llm_text_model_name = "llama3-70b-8192"
+llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 
 # Main function
 def main():
     st.set_page_config(page_title="llama-first-aid", page_icon="🦙")
     
+    st.sidebar.header("Modalità")
+
+    # Additional toggles for fine-grained control of image upload
+    allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
+
     # Sidebar for project details
     st.sidebar.header("Dettagli")
     st.sidebar.write(""" 
@@ -31,31 +37,31 @@ def main():
 
     query = st.chat_input("Descrivi il problema o la situazione di emergenza")
     
-    # Per immagine live cambiare file_uploader con camera_input
-    # captured_image = st.camera_input("Cattura un'immagine (opzionale)")
-    captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
-    if captured_image:
-        image_base64 = convert_image_to_base64(captured_image, resize=50)
+    # Conditionally handle image upload based on compliance choice
+    if allow_images:
+        captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
+        if captured_image:
+            image_base64 = convert_image_to_base64(captured_image, resize=50)
 
-    if query and image_base64:
+    if query or (query and image_base64):
         sys_message_template = load_template("templates/sys_message_template.jinja")
         sys_message = sys_message_template.render()
         ctx_message_template = load_template("templates/ctx_message_template.jinja")
-        ctx_message = ctx_message_template.render(user_request=query, image_base64=image_base64)
+        ctx_message = ctx_message_template.render(user_request=query)
 
         # Display user message in chat message container
         with st.chat_message("user"):
             if query:
                 st.markdown(f"**Testo:** {query}")
-            #if audio_text:
-            #    st.markdown(f"**Audio:** {audio_text}")
             if image_base64:
                 st.markdown("**Immagine catturata**")
 
-
         # Call the LLM with the Jinja prompt and DataFrame context
         with st.chat_message("assistant"):        
-            stream = call_llm(llm=llm, llm_model_name=llm_model_name, sys_message=sys_message, context_message=ctx_message)
+            if image_base64 == "":
+                stream = call_llm(llm=llm, llm_model_name=llm_text_model_name, sys_message=sys_message, context_message=ctx_message)
+            else: 
+                stream = call_llm(llm=llm, llm_model_name=llm_vision_model_name, sys_message=sys_message, context_message=ctx_message, base64_image=image_base64)
 
             # Initialize an empty string to store the full response as it is built
             response = ""
