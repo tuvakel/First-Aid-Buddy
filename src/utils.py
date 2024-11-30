@@ -1,10 +1,9 @@
-from openai import OpenAI
+from groq import Groq
 
 
-def init_LLM(AIML_API_KEY=None):
-    client = OpenAI(
-        base_url=AIML_API_KEY,
-        api_key="https://api.aimlapi.com/v1",    
+def init_LLM(API_KEY=None):
+    client = Groq(
+        api_key= API_KEY,
     )
     return client
 
@@ -38,6 +37,9 @@ mapping = {
 
 
 def testo_to_utf8(testo, mapping = mapping):
-    for errato, corretto in mapping.items():
-        testo = testo.replace(errato, corretto)
+    if testo:
+        for errato, corretto in mapping.items():
+            testo = testo.replace(errato, corretto)
+    else:
+        testo = ""
     return testo
