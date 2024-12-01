@@ -1,4 +1,5 @@
 # **LLAMA First Aid**
+[**presentation**](presentation/presentation.pdf)
 
 > **This project has been produced for the LLaMA Impact Rome Hackathon ([lablab.ai](https://lablab.ai/hackathon-llama-impatto-roma)).**
 
@@ -42,6 +43,8 @@ The acronym **LLAMA** in our app stands for a **Live Assistant for Medical Assis
 ---
 
 ## How It Works
+![image](presentation/architecture.png)
+
 ### **1. User Interaction**
 The user accesses the LLAMA First Aid web application and provides key information about the emergency. LLAMA asks targeted questions to assess the situation and understand the patient's condition (e.g., symptoms, injury type, etc.).
 

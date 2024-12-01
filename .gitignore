@@ -7,4 +7,6 @@ useless
 img
 src/test.ipynb
 presentation/*
+!presentation/architecture.png
+!presentation/presentation.pdf
 .DS_Store
