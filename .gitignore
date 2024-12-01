@@ -6,3 +6,5 @@ __pycache__
 useless
 img
 src/test.ipynb
+presentation/*
+.DS_Store
