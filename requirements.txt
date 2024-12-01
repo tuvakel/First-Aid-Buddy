@@ -3,6 +3,7 @@ crewai-tools==0.14.0
 chroma-hnswlib==0.7.6
 chromadb==0.5.20
 geocoder==1.38.1
+geopy==2.4.1
 google-auth==2.36.0
 google-cloud-aiplatform==1.73.0
 google-cloud-bigquery==3.27.0
