@@ -10,3 +10,4 @@ presentation/*
 !presentation/architecture.png
 !presentation/presentation.pdf
 .DS_Store
+notebooks/*

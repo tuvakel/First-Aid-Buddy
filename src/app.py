@@ -100,22 +100,23 @@ def main():
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
             
-        # Call the LLM with the Jinja prompt and DataFrame context
-        with st.chat_message("assistant"):
-            response = crew.kickoff(inputs={"query": query}).raw
-            #response = testo_to_utf8(response.raw)
+        with st.spinner("Sto pensando..."):
+            # Call the LLM with the Jinja prompt and DataFrame context
+            with st.chat_message("assistant"):
+                response = crew.kickoff(inputs={"query": query, "user_location" : user_location}).raw
+                #response = testo_to_utf8(response.raw)
 
-            # Initialize an empty string to store the full response as it is built
-            line_placeholder = st.empty()
-            line_placeholder.markdown(response, unsafe_allow_html=True)
-            st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
-    
-            # Extract YouTube link from the response and embed it
-            youtube_link = extract_youtube_link(response)
-            if youtube_link:
-                video_url = youtube_link.replace("watch?v=", "embed/")
-                youtube_embed = f'<iframe width="560" height="315" src="{video_url}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
-                line_placeholder.markdown(f"{response}<br>{youtube_embed}", unsafe_allow_html=True)
+                # Initialize an empty string to store the full response as it is built
+                line_placeholder = st.empty()
+                line_placeholder.markdown(response, unsafe_allow_html=True)
+                st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
+        
+                # Extract YouTube link from the response and embed it
+                youtube_link = extract_youtube_link(response)
+                if youtube_link:
+                    video_url = youtube_link.replace("watch?v=", "embed/")
+                    youtube_embed = f'<iframe width="560" height="315" src="{video_url}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
+                    line_placeholder.markdown(f"{response}<br>{youtube_embed}", unsafe_allow_html=True)
 
             #if response.strip():
             #    audio_path = text_to_speech(response, language="it")

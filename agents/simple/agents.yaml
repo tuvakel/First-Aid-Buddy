@@ -25,4 +25,3 @@ first_aid_chatbot:
       - Ensure the video is from a trusted source and accurately demonstrates the technique.
   tools: []
   memory: false
-  verbose: true
