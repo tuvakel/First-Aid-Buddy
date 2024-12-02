@@ -1,7 +1,7 @@
 # **LLAMA First Aid**
 [**presentation**](presentation/presentation.pdf)
 
-> **This project has been produced for the LLaMA Impact Rome Hackathon ([lablab.ai](https://lablab.ai/hackathon-llama-impatto-roma)).**
+> **This project secured second place in the LLaMA Impact Rome Hackathon 2024 ([lablab.ai](https://lablab.ai/hackathon-llama-impatto-roma)).**
 
 ## Overview
 **LLAMA First Aid** is a cutting-edge, web-based assistant designed to provide immediate, step-by-step guidance for first aid during medical emergencies. Powered by **Meta's LLaMA** (Large Language Model Meta AI), this app leverages advanced natural language processing capabilities to understand critical situations and deliver real-time, personalized first aid instructions. Built with **Streamlit**, LLAMA First Aid offers a user-friendly interface that allows anyone—whether trained or not—to respond effectively in a medical emergency.
