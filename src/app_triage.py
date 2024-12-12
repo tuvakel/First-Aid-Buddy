@@ -2,8 +2,9 @@ import streamlit as st
 from utils import *
 import tempfile
 import hashlib
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 #from crewai_utils import init_crew
-from langgraph_utils import get_user_location, process_pdf, create_retriever, create_langgraph_agent
+from triage_utils import create_retriever, create_triage_agent
 from streamlit_js_eval import get_geolocation
 import time
 
@@ -25,7 +26,7 @@ if st.checkbox("Check my location", value=True):
     user_location_info = user_location_info.get('coords', None)
     user_location = (user_location_info['latitude'], user_location_info['longitude'])
 else:
-    user_location = get_user_location()
+    user_location = (3,4)
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
@@ -33,27 +34,23 @@ YOUTUBE_API_KEY = st.secrets["YOUTUBE"]["YOUTUBE_API_KEY"]
 GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS"]["GOOGLE_MAPS_API_KEY"]
 llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
-file_path = "../data/doc_emergency/pdf/manuale_primo_soccorso.pdf"
+file_path = "../data/doc_triage/pdf/Manuale-Triage.pdf"
 documents=None
 ensemble_retriever = None
 agent=None
 
-@st.cache_resource
-def load_documents(_file_path):
-    return process_pdf(_file_path)
-
 # Funzione per creare il retriever
 @st.cache_resource
-def load_retriever(_documents):
-    return create_retriever(_documents)
+def load_retriever(_file_path):
+    return create_retriever(_file_path)
 
 # Funzione per creare l'agente
 @st.cache_resource
 def load_agent():
-    return create_langgraph_agent()
+    return create_triage_agent()
 
-documents = load_documents(_file_path=file_path)
-ensemble_retriever = load_retriever(documents)
+#documents = load_documents(_file_path=file_path)
+ensemble_retriever = load_retriever(file_path)
 #crew = init_crew()
 agent = load_agent()
 # llm_vision_model_name = "llama-3.2-11b-vision-preview"
@@ -116,7 +113,7 @@ def main():
         #         st.markdown("**Immagine catturata**")
             
         if "chat_history" not in st.session_state:
-            st.session_state.chat_history = [{"role": "user", "content": query}]
+            st.session_state.chat_history = [HumanMessage(content=query)]
     
             if image_base64:
                 st.session_state.chat_history.append({
@@ -124,54 +121,39 @@ def main():
                     "content": f"data:image/jpeg;base64,{image_base64}"
                 })
         else:
-            st.session_state.chat_history.append({"role": "user", "content": query})
+            st.session_state.chat_history.append(HumanMessage(content=query))
 
         # Mostra la cronologia della conversazione
         for message in st.session_state.chat_history:
-            if message["role"] != 'system':
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
+            if not isinstance(message, SystemMessage):
+                if isinstance(message, HumanMessage):
+                    role = "user"
+                elif isinstance(message, AIMessage):
+                    role = "assistant"
+                with st.chat_message(role):
+                    st.markdown(message.content)
             
         with st.spinner("Sto pensando..."):
             # Call the LLM with the Jinja prompt and DataFrame context
             with st.chat_message("assistant"):
                 input = {
-                    "query": query,
-                    "history" : st.session_state.chat_history[:-1],
-                    "retry_count_youtube": 0,  # Inizializzazione del conteggio
-                    "retry_count_web_search": 0, 
-                    "user_location" : user_location,
+                    "messages":st.session_state.chat_history,
                     "ensemble_retriever" : ensemble_retriever,
-                    "youtube_api_key": YOUTUBE_API_KEY,
-                    "google_maps_api_key": GOOGLE_MAPS_API_KEY
+                    "questions" : []
                 }
-                response, google_maps_link, hospital_name, youtube_link, video_title= agent.invoke(input)['final_result']
+                #config = {"configurable": {"thread_id": "1"}}
+                output = agent.invoke(input)
+                severity = output.get('severity', None)
+                if severity:
+                    response = severity
+                else:
+                    response = output['questions'][-1].content
                 #response = testo_to_utf8(response.raw)
 
                 # Initialize an empty string to store the full response as it is built
                 st.markdown(response, unsafe_allow_html=True)
 
-                # Mostra il link di Google Maps
-                st.markdown(f"### Ospedale più vicino: **{hospital_name}**")
-                st.markdown(f"[Google Maps]({google_maps_link})")
-
-                if video_title:
-                    # Mostra il video di YouTube
-                    st.markdown(f"## Video YouTube:")
-                    st.markdown(f"### {video_title}:")
-                st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
-        
-                # Extract YouTube link from the response and embed it
-                #youtube_link = extract_youtube_link(response)
-
-                if 'https' in youtube_link:
-                    video_url = youtube_link.replace("watch?v=", "embed/")
-                    youtube_embed = f'<iframe width="560" height="315" src="{video_url}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
-                    st.markdown(f"<br>{youtube_embed}", unsafe_allow_html=True)
-
-            #if response.strip():
-            #    audio_path = text_to_speech(response, language="it")
-            #    st.audio(audio_path, format="audio/mp3", start_time=0)
+                st.session_state.chat_history.extend([AIMessage(content=str(response))])
             
         # Save session data to GCS
         bucket_name = st.secrets["GCP"]["BUCKET_NAME"]

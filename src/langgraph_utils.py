@@ -13,14 +13,13 @@ from dotenv import load_dotenv
 load_dotenv()
 import os
 import requests
-from geopy.geocoders import Nominatim
 import streamlit as st
 import re
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
+#from langchain.embeddings import OpenAIEmbeddings
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from langchain.schema import Document
 
@@ -28,7 +27,6 @@ from langchain.schema import Document
 llm_70b = ChatGroq(model="llama-3.1-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
-import geocoder
 
 def get_user_location():
     """
@@ -157,11 +155,11 @@ def create_bm25_retriever(documents, bm25_index_path="bm25_index.pkl"):
     """
     # Se esiste un file salvato, carica il retriever
     if os.path.exists(bm25_index_path):
-        print("Caricamento retriever BM25 esistente.")
+        #print("Caricamento retriever BM25 esistente.")
         with open(bm25_index_path, "rb") as f:
             bm25_retriever = pickle.load(f)
     else:
-        print("Creazione di un nuovo retriever BM25.")
+        #print("Creazione di un nuovo retriever BM25.")
         # Creazione del retriever BM25
         bm25_retriever = BM25Retriever.from_documents(documents)
         
@@ -175,7 +173,7 @@ def create_retriever(documents, faiss_path="faiss_index"):
     # Step 1: Configura l'indice BM25 per i titoli
     bm25_retriever = create_bm25_retriever(documents)
     # Step 2: Configura FAISS per i contenuti
-    embedding = OpenAIEmbeddings()
+    embedding = OpenAIEmbeddings(api_key=st.secrets["OPENAI"]["OPENAI_API_KEY"])
     if os.path.exists(faiss_path):
         vectorstore = FAISS.load_local(faiss_path, embeddings=embedding, allow_dangerous_deserialization=True)
     else:
@@ -196,7 +194,7 @@ class AgentState(TypedDict):
     rag_answer : str
     ensemble_retriever : EnsembleRetriever
 
-    keywords: str
+    keywords_youtube: str
     search_results: str
     video_title:str
     youtube_api_key : str
@@ -253,8 +251,8 @@ def web_search(state: AgentState) -> str:
              If no pertinent information is found, it returns a message indicating the absence of results.
     """
     # Fase 1: Ricerca su Internet
-    log_state("web_search", state)
-    query = state['keywords']
+    #log_state("web_search", state)
+    query = state['web_search_keywords']
     if not isinstance(query, str):
         return "Nessun contenuto pertinente trovato su Internet"
     compliant_links = ['my-personaltrainer', 'msdmanuals']
@@ -287,24 +285,24 @@ def web_search(state: AgentState) -> str:
 
             except requests.exceptions.RequestException as e:
                 print(f"NO Info")
-        return {"web_answer" : general_content}
+        return {"web_info" : general_content}
     except:
-        return {"web_answer" : "NO Info"}
+        return {"web_info" : "NO Info"}
     
 def extract_keywords_web_search(state:AgentState):
-   log_state("extract_keywords_web_search", state)
+   #log_state("extract_keywords_web_search", state)
    query = state['query']
    previous_keywords = state.get('web_search_keywords', '')
     # Costruisci il prompt
-   prompt = f"""You are a highly skilled virtual assistant with expertise in first aid. Your task is to extract the most relevant medical keywords from the following user query: '{query}' and the history of your conversation:  {state['history']}.
-   These keywords will help optimize searches for first aid guidance on various websites. Follow these rules strictly:
-
-    1. **Focus on medical relevance:** Extract only the essential details about the medical issue or injury described in the query. For example:
+   prompt = f"""You are a highly skilled virtual assistant with expertise in first aid. Your task is to extract the most relevant medical keywords from the user's query and the conversation history. These keywords will help optimize searches for first aid guidance on various websites. Follow these instructions carefully:
+    
+    1. **Understand User Needs:** Analyze the user query and conversation history to understand the specific medical needs or issues.
+    2. **Focus on Medical Relevance:** Extract only essential information about the medical issue or injury, including:
     - Type of injury or symptom (e.g., "cut," "burn," "panic attack").
     - Cause of the issue, if specified (e.g., "knife," "hot water," "bee sting").
-    2. **Omit redundant or irrelevant details:** Ignore unnecessary context, such as who the injury happened to or extraneous background information.
-    3. **Translate into Italian:** Ensure the extracted keywords are translated into Italian, regardless of the query's original language.
-    4. **Output format:** Return the result strictly as a JSON object with the key 'keywords' containing the extracted keywords.""" + \
+    3. **Omit redundant or irrelevant details:** Ignore unnecessary context, such as who the injury happened to or extraneous background information.
+    4. **Translate into Italian:** Ensure the extracted keywords are translated into Italian, regardless of the query's original language.
+    5. **Output format:** Return the result strictly as a JSON object with the key 'keywords' containing the extracted keywords. **Do not include any other text outside the JSON object.**""" + \
     """
     1. Query: "I am feeling anxious, I think I am having a panic attack. What should I do?" 
        Output : {"keywords": "attacco di panico, primo soccorso"}
@@ -321,9 +319,17 @@ def extract_keywords_web_search(state:AgentState):
 
    if previous_keywords:
         prompt += f" Previous search with keywords '{previous_keywords}' returned no results. Try a different search query."
+    
+   prompt += f"""    ### Input:
+   Query: '{query}'
+   History: {state['history']}
+   
+   ### Output:
+   Return strictly as a JSON object:"""
         
    # Chiamata al modello LLM
    response = llm_70b.invoke([HumanMessage(content=prompt)])
+   #print(f'web_search_keywords: {response.content}')
    return {"web_search_keywords": json.loads(response.content)["keywords"], "retry_count_web_search" : state["retry_count_web_search"]+1}
 
 
@@ -331,8 +337,8 @@ def extract_keywords_web_search(state:AgentState):
 # Funzione per controllare se continuare
 def should_continue_web_search(state:AgentState):
     web_search_results = state.get('web_answer', '')
-    log_state("should_continue_web_search", state)
-    print(state['retry_count_web_search'])
+    #log_state("should_continue_web_search", state)
+    #print(state['retry_count_web_search'])
     retry_count_web_search = state.get('retry_count_web_search', 0)
     if (not web_search_results or web_search_results == "NO Info") and retry_count_web_search <2:
         # Incrementa il contatore dei retry
@@ -349,9 +355,9 @@ def should_web_search(state:AgentState):
 
 
 def extract_keywords_youtube(state:AgentState):
-   log_state("extract_keywords_youtube", state)
+   #log_state("extract_keywords_youtube", state)
    query = state['query']
-   previous_keywords = state.get('keywords', '')
+   previous_keywords = state.get('keywords_youtube', '')
     # Costruisci il prompt
    prompt = f"""From the following user query: '{query}' and the history of your conversation: '{state['history']}', extract the most relevant keywords to optimize the search for a video on YouTube. Translate them into English.
     Return just a Json object with the key: 'keywords'
@@ -376,8 +382,7 @@ def extract_keywords_youtube(state:AgentState):
    
     # Chiamata al modello LLM
    response = llm_70b.invoke([HumanMessage(content=prompt)])
-   print(response.content)
-   return {"keywords": json.loads(response.content)["keywords"], "retry_count_youtube" : state["retry_count_youtube"]+1}
+   return {"keywords_youtube": json.loads(response.content)["keywords"], "retry_count_youtube" : state["retry_count_youtube"]+1}
 
 
 
@@ -388,6 +393,13 @@ def should_continue_youtube(state:AgentState):
     if (not search_results or "No videos found" in search_results) and retry_count_youtube <2:
         return "retry"
     return "end"
+
+def create_response_from_web_search(state:AgentState):
+    web_info = state.get('web_info', '')
+    query = state.get('query', '')
+    prompt = f"""Using the following context: {web_info}, provide a detailed and comprehensive response to the user query: "{query}". Focus on offering practical and actionable support for someone already facing the issue. Avoid mentioning precautions unless explicitly relevant to resolving the problem. Ensure your answer is clear, accurate, and concise, and limit it in a range of 400-800 words."""
+    response = llm_70b.invoke([HumanMessage(content=prompt)])
+    return {"web_answer" : response.content}
 
 
 def search_youtube_videos(state:AgentState) -> str:
@@ -400,8 +412,8 @@ def search_youtube_videos(state:AgentState) -> str:
     Returns:
         str: Un di link utile rispetto alla query, o un messaggio che indica che non sono stati trovati video.
     """
-    log_state("search_youtube_videos", state)
-    keywords = state['keywords']
+    #log_state("search_youtube_videos", state)
+    keywords = state['keywords_youtube']
     if not isinstance(keywords, str):
         return "Nessun video pertinente trovato per la query specificata nei canali consentiti."
     YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
@@ -458,7 +470,6 @@ def search_youtube_videos(state:AgentState) -> str:
                 for item in data["items"]:
                     video_id = item["id"]["videoId"]
                     video_title = item["snippet"]["title"]
-                
                     response = llm_70b.invoke([HumanMessage(content=prompt.format(query=state['query'], video_title=video_title))]).content
                     if response.strip().lower() == 'yes':
                         return {"search_results": f"https://www.youtube.com/watch?v={video_id}",
@@ -500,11 +511,8 @@ def get_google_maps_url(state:AgentState):
         # Controlla se ci sono risultati
         if "results" in data and len(data["results"]) > 0:
             nearest_hospital = data["results"][0]  # Il primo risultato è il più vicino
-            print(nearest_hospital)
             hospital_name = nearest_hospital["name"]
-            address = nearest_hospital.get("vicinity")
             location = nearest_hospital["geometry"]["location"]
-            print(address)
             return {
                 "hospital_name": hospital_name,
                 "google_maps_url": f"https://www.google.com/maps?q={location['lat']},{location['lng']}",
@@ -523,7 +531,7 @@ def combine_results(state:AgentState):
     video_result = state.get("search_results", "No video found.")
     video_title = state.get("video_title", "No video found.")
     google_maps_url = state.get("google_maps_url", "")
-    hospital_name = state.get("google_maps_url", "No hospital information found.")
+    hospital_name = state.get("hospital_name", "No hospital information found.")
     if state.get("web_answer", ""):
         doc_answer = state["web_answer"]
     else:
@@ -546,6 +554,7 @@ def create_langgraph_agent():
     graph.add_node("search_youtube_videos", search_youtube_videos)
     graph.add_node("answer_from_rag", answer_from_rag)
     graph.add_node("web_search", web_search)
+    graph.add_node("create_response_from_web_search", create_response_from_web_search)
 
 
     graph.add_edge("extract_keywords_youtube", "search_youtube_videos")
@@ -585,9 +594,11 @@ def create_langgraph_agent():
         should_continue_web_search,
         {
             "retry": "extract_keywords_web_search",
-            "end": "combine_results",
+            "end": "create_response_from_web_search",
         }
     )
+    graph.add_edge("create_response_from_web_search", "combine_results")
+
     # Collegamenti ai flussi paralleli
     graph.add_edge("start_emergency_bot", "extract_keywords_youtube")
     graph.add_edge("start_emergency_bot", "get_google_maps_url")
