@@ -446,6 +446,7 @@ def search_youtube_videos(state:AgentState) -> str:
     """
     #log_state("search_youtube_videos", state)
     keywords = state['keywords_youtube']
+    print(f"keywords: {keywords}")
     if not isinstance(keywords, str):
         return "Nessun video pertinente trovato per la query specificata nei canali consentiti."
     YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
@@ -460,6 +461,7 @@ def search_youtube_videos(state:AgentState) -> str:
     1. Assume the query pertains to a medical issue affecting a person unless otherwise specified.
     2. Focus only on the **relevance** of the video to the user's query.
     3. Base your decision solely on the content of the query and the video title.
+    4. Language differences are not relevant.
     4. Return only "YES" or "NO". No explanations.
 
     ### Format:
@@ -467,8 +469,11 @@ def search_youtube_videos(state:AgentState) -> str:
     - Output: "YES" or "NO".
 
     ### Examples:
-    1. Input: Query: "Mi ha punto un'ape", Video title: "Allergic Reactions in Dogs".
+    1. Input: Query: "I got stung by a bee", Video title: "Allergic Reactions in Dogs".
     Output: "NO"
+
+    1. Input: Query: "Mi ha punto un'ape", Video title: "First Aid for Bee Stings".
+    Output: "YES"
 
     2. Input: Query: "How to treat a bee sting?", Video title: "First Aid for Bee Stings".
     Output: "YES"
