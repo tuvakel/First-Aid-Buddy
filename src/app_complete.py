@@ -111,7 +111,7 @@ def main():
     #        image_base64 = convert_image_to_base64(captured_image, resize=50)
 
     if (query or (query and image_base64)) or (audio_value or (audio_value and image_base64)):
-        sys_message_template = load_template("templates/sys_message_template.jinja")
+        #sys_message_template = load_template("templates/sys_message_template.jinja")
         #sys_message = sys_message_template.render()
         trscb_message_template = load_template("templates/trscb_message_template.jinja")
         trscb_message = trscb_message_template.render()
@@ -196,9 +196,10 @@ def main():
                     # Initialize an empty string to store the full response as it is built
                     st.markdown(response, unsafe_allow_html=True)
 
-                    # Mostra il link di Google Maps
-                    st.markdown(f"### Ospedale più vicino: **{hospital_name}**")
-                    st.markdown(f"[Google Maps]({google_maps_link})")
+                    if severity >2:
+                        # Mostra il link di Google Maps
+                        st.markdown(f"### Ospedale più vicino: **{hospital_name}**")
+                        st.markdown(f"[Google Maps]({google_maps_link})")
 
                     if video_title:
                         # Mostra il video di YouTube
