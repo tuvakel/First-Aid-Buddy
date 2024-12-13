@@ -4,7 +4,8 @@ import tempfile
 import hashlib
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 #from crewai_utils import init_crew
-from triage_utils import create_retriever, create_triage_agent
+from triage_utils import create_triage_retriever, create_triage_agent, severity_to_color
+from emergency_utils import create_emergency_retriever, create_emergency_agent
 from streamlit_js_eval import get_geolocation
 import time
 
@@ -36,25 +37,38 @@ llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
 file_path_triage = "../data/doc_triage/pdf/Manuale-Triage.pdf"
 file_path_emergency = "../data/doc_emergency/pdf/manuale_primo_soccorso.pdf"
+prompt_emergency_file_path = "templates/emergency_prompt.jinja"
+prompt_everyday_file_path = "templates/everyday_prompt.jinja"
+prompt_emergency = load_template(prompt_emergency_file_path)
+prompt_everyday = load_template(prompt_everyday_file_path)
 ensemble_retriever_emergency = None
 ensemble_retriever_triage = None
-agent=None
+triage_agent=None
 
 # Funzione per creare il retriever
 @st.cache_resource
-def load_retriever(_file_path):
-    return create_retriever(_file_path)
+def load_triage_retriever(file_path, bm25_path, faiss_path):
+    return create_triage_retriever(file_path, bm25_path, faiss_path)
 
-# Funzione per creare l'agente
+# Funzione per creare il retriever
 @st.cache_resource
-def load_agent():
+def load_emergency_retriever(file_path, bm25_path, faiss_path):
+    return create_emergency_retriever(file_path, bm25_path, faiss_path)
+
+# Funzione per creare l'triage_agente
+@st.cache_resource
+def load_triage_agent():
     return create_triage_agent()
+@st.cache_resource
+def load_emergency_agent():
+    return create_emergency_agent()
 
 #documents = load_documents(_file_path=file_path)
-ensemble_retriever_triage = load_retriever(file_path_triage)
-ensemble_retriever_emergency = load_retriever(file_path_emergency)
+ensemble_retriever_triage = load_triage_retriever(file_path_triage, bm25_path="bm25_triage_index.pkl", faiss_path="faiss_triage_index")
+ensemble_retriever_emergency = load_emergency_retriever(file_path_emergency, bm25_path="bm25_emergency_index.pkl", faiss_path="faiss_emergency_index")
 #crew = init_crew()
-agent = load_agent()
+triage_agent = load_triage_agent()
+emergency_agent = load_emergency_agent()
 # llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 # GCS client to store session data
@@ -135,7 +149,7 @@ def main():
                 with st.chat_message(role):
                     st.markdown(message.content)
             
-        with st.spinner("Sto pensando..."):
+        with st.spinner("Sto pensando per capire la gravità della situazione..."):
             # Call the LLM with the Jinja prompt and DataFrame context
             with st.chat_message("assistant"):
                 input = {
@@ -144,23 +158,67 @@ def main():
                     "questions" : []
                 }
                 #config = {"configurable": {"thread_id": "1"}}
-                output = agent.invoke(input)
+                output = triage_agent.invoke(input)
                 severity = output.get('severity', None)
                 if severity:
+                    color = severity_to_color[severity]
+                    # Mostra un pallino colorato
+                    st.markdown(
+                        f"<span style='font-size: 16px;'>Al tuo codice è stato affidato codice {severity}</span>"
+                        f"<div style='display: inline-block; width: 20px; height: 20px; background-color: {color}; border-radius: 50%;'></div> ",
+                        unsafe_allow_html=True
+                    )
                     response = severity
+                    query = output['full_query']
                 else:
                     response = output['questions'][-1].content
-                #response = testo_to_utf8(response.raw)
+                    st.markdown(response, unsafe_allow_html=True)    
+                st.session_state.chat_history.extend([AIMessage(content=str(response))])
+        if severity:
+            with st.spinner("L'agente per le emergenze sta pensando per trovare una soluzione..." if severity >2 else "L'agente per le situazioni comuni sta pensando per trovare una soluzione..."):
+                # Call the LLM with the Jinja prompt and DataFrame context
+                with st.chat_message("assistant"):
+                    input = {
+                        "full_query": query,
+                        "prompt": prompt_emergency if severity >2 else prompt_everyday,
+                        "severity" : severity,
+                        "history" : st.session_state.chat_history[:-1],
+                        "retry_count_youtube": 0,  # Inizializzazione del conteggio
+                        "retry_count_web_search": 0, 
+                        "user_location" : user_location,
+                        "ensemble_retriever" : ensemble_retriever_emergency,
+                        "youtube_api_key": YOUTUBE_API_KEY,
+                        "google_maps_api_key": GOOGLE_MAPS_API_KEY
+                    }
+                    response, google_maps_link, hospital_name, youtube_link, video_title= emergency_agent.invoke(input)['final_result']
+                    #response = testo_to_utf8(response.raw)
 
-                # Initialize an empty string to store the full response as it is built
-                st.markdown(response, unsafe_allow_html=True)
+                    # Initialize an empty string to store the full response as it is built
+                    st.markdown(response, unsafe_allow_html=True)
 
+                    # Mostra il link di Google Maps
+                    st.markdown(f"### Ospedale più vicino: **{hospital_name}**")
+                    st.markdown(f"[Google Maps]({google_maps_link})")
+
+                    if video_title:
+                        # Mostra il video di YouTube
+                        st.markdown(f"## Video YouTube:")
+                        st.markdown(f"### {video_title}:")
+                    st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
+            
+                    # Extract YouTube link from the response and embed it
+                    #youtube_link = extract_youtube_link(response)
+
+                    if 'https' in youtube_link:
+                        video_url = youtube_link.replace("watch?v=", "embed/")
+                        youtube_embed = f'<iframe width="560" height="315" src="{video_url}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
+                        st.markdown(f"<br>{youtube_embed}", unsafe_allow_html=True)
                 st.session_state.chat_history.extend([AIMessage(content=str(response))])
             
-        # Save session data to GCS
-        bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
-        session_filename = create_session_filename(session_id)
-        write_session_to_gcs(session_id, user_location, query, response, bucket_name, session_filename, gcs_client)
+        # # Save session data to GCS
+        # bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
+        # session_filename = create_session_filename(session_id)
+        # write_session_to_gcs(session_id, user_location, query, response, bucket_name, session_filename, gcs_client)
 
 
 if __name__ == "__main__":

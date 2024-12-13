@@ -1,5 +1,5 @@
 from groq import Groq
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, Template
 from PIL import Image
 from io import BytesIO
 import base64
@@ -32,7 +32,7 @@ def convert_image_to_base64(image_file, resize: None):
     return base64_image
 
 
-def load_template(template_path: str) -> str:
+def load_template(template_path: str) -> Template:
     env = Environment(loader=FileSystemLoader(os.path.dirname(template_path)))
     template = env.get_template(os.path.basename(template_path))
     return template

@@ -10,6 +10,9 @@ from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from concurrent.futures import ThreadPoolExecutor
+from langchain.schema import Document
+import re
+import time
 #from langgraph.checkpoint.memory import MemorySaver
 #memory = MemorySaver()
 import pickle
@@ -17,7 +20,7 @@ import pickle
 llm_70b = ChatGroq(model="llama-3.1-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
-def process_pages(pages):
+def process_pages(pages:List[Document]):
     import re
     for doc in pages:
         doc.page_content = doc.page_content.replace(
@@ -26,16 +29,15 @@ def process_pages(pages):
         doc.page_content = re.sub(r'^\d+\s*\n\s*\n', '', doc.page_content)
     return pages
 
-def process_pdf(file_path):
+def process_pdf_triage(file_path:str):
+    print('process_pdf_triage')
     # Carica le pagine del PDF
     loader = PyPDFLoader(file_path)
     pages = loader.load()[11:]
 
     # Dividi le pagine in sottogruppi per ogni core
     num_cores = os.cpu_count()  # Numero di core disponibili
-    print(f"num_cores: {num_cores}")
     chunk_size = len(pages) // num_cores + (len(pages) % num_cores > 0)
-    print(f"chunk_size: {chunk_size}")
     chunks = [pages[i:i + chunk_size] for i in range(0, len(pages), chunk_size)]
 
     # Parallelizza il lavoro con ProcessPoolExecutor
@@ -47,7 +49,7 @@ def process_pdf(file_path):
     return documents
 
 
-def create_bm25_retriever(pdf_file_path, bm25_index_path="bm25_triage_index.pkl"):
+def create_bm25_retriever_triage(pdf_file_path:str, bm25_index_path="bm25_triage_index.pkl"):
     """
     Crea o carica un retriever BM25.
 
@@ -62,36 +64,39 @@ def create_bm25_retriever(pdf_file_path, bm25_index_path="bm25_triage_index.pkl"
     if os.path.exists(bm25_index_path):
         #print("Caricamento retriever BM25 esistente.")
         with open(bm25_index_path, "rb") as f:
-            bm25_retriever = pickle.load(f)
+            bm25_retriever : BM25Retriever = pickle.load(f)
+            bm25_retriever.k = 3
             documents = []
     else:
         #print("Creazione di un nuovo retriever BM25.")
         # Creazione del retriever BM25
-        documents = process_pdf(pdf_file_path)
+        documents = process_pdf_triage(pdf_file_path)
         bm25_retriever = BM25Retriever.from_documents(documents)
-        
+        bm25_retriever.k = 3
         # Salva il retriever
         with open(bm25_index_path, "wb") as f:
             pickle.dump(bm25_retriever, f)
     
     return bm25_retriever, documents
 
-def create_retriever(pdf_file_path, faiss_path="faiss_triage_index"):
+
+def create_triage_retriever(pdf_file_path:str, bm25_index_path:str, faiss_path:str):
     # Step 1: Configura l'indice BM25 per i titoli
-    bm25_retriever, documents = create_bm25_retriever(pdf_file_path)
+    bm25_retriever, documents = create_bm25_retriever_triage(pdf_file_path, bm25_index_path)
     # Step 2: Configura FAISS per i contenuti
     embedding = OpenAIEmbeddings(api_key=st.secrets["OPENAI"]["OPENAI_API_KEY"])
     if os.path.exists(faiss_path):
         vectorstore = FAISS.load_local(faiss_path, embeddings=embedding, allow_dangerous_deserialization=True)
+        print('load triage retriever')
     else:
         if documents:
             vectorstore = FAISS.from_documents(documents, embedding=embedding)
             vectorstore.save_local(faiss_path)
         else:
-            documents = process_pdf(pdf_file_path)
+            documents = process_pdf_triage(pdf_file_path)
             vectorstore = FAISS.from_documents(documents, embedding=embedding)
             vectorstore.save_local(faiss_path)
-    similarity_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 2})
+    similarity_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 4})
 
     # Step 3: Configura un MultiRetriever
     ensemble_retriever = EnsembleRetriever(retrievers=[
@@ -101,12 +106,22 @@ def create_retriever(pdf_file_path, faiss_path="faiss_triage_index"):
     return ensemble_retriever
 
 
+
+severity_to_color = {
+    1: "#00FF00",  # Verde
+    2: "#ADFF2F",  # Giallo-verde
+    3: "#FFFF00",  # Giallo
+    4: "#FFA500",  # Arancione
+    5: "#FF0000"   # Rosso
+}
+
+
 class TriageState(TypedDict):
-    ensemble_retriever : EnsembleRetriever
+    ensemble_retriever_triage : EnsembleRetriever
     severity : int
     questions : Annotated[list, add_messages]
-    next_node : str
     messages: Annotated[list, add_messages]
+    full_query : str
 
 def start_emergency_bot(state:TriageState):
     # Nodo di coordinamento iniziale, ritorna lo stato invariato
@@ -141,11 +156,11 @@ def triage_evaluation(state:TriageState):
     full_query = llm_70b.invoke(contextualize_q_system_prompt).content
 
     print(f"full_query: {full_query}")
-    ensemble_retriever = state['ensemble_retriever']
-    retrieved_docs = ensemble_retriever.invoke(full_query)
+    ensemble_retriever_triage = state['ensemble_retriever_triage']
+    retrieved_docs = ensemble_retriever_triage.invoke(full_query)
     print(f"len_retrieved_docs: {len(retrieved_docs)}")
     retrieved_info = [doc.page_content for doc in retrieved_docs]
-    full_retrieved_info = " ".join([message for message in retrieved_info])
+    full_retrieved_info = " ".join([message for message in retrieved_info[:2]])
     system_prompt = f""" Sei un professionista altamente esperto in medicina d'urgenza, specializzato in Triage. Il tuo compito è valutare la gravità della situazione dell'utente fornendo un punteggio da 1 a 5 oppure chiedere una domanda concisa per ottenere ulteriori informazioni, se necessario.
 
     ### Istruzioni:
@@ -161,33 +176,33 @@ def triage_evaluation(state:TriageState):
     ### Esempi di output:
     #### Scenario 1:
     Hai abbastanza informazioni per valutare la gravità.
-    **Output**: 3
+    Output: 3
 
     #### Scenario 2:
     Hai bisogno di ulteriori informazioni.
-    **Output**: Hai mai avuto reazioni allergiche nella tua vita?
+    Output: Hai mai avuto reazioni allergiche nella tua vita?
 
-    ### Contesto:
-    Documenti forniti: {full_retrieved_info}
+    ### Documenti:
+    {full_retrieved_info}
 
+    ### Situazione medica dell'utente:
+    {full_query}
     ### Nota:
     - Rispondi esclusivamente in italiano.
     - Evita risposte prolisse; usa solo un punteggio o una domanda diretta.
     """
-    updated_prompt = [SystemMessage(content=system_prompt), HumanMessage(full_query)]
+    updated_prompt = [HumanMessage(system_prompt)]
     print(f"updated_prompt: {updated_prompt}")
+    start_time = time.time()
     response = llm_70b.invoke(updated_prompt).content
+    end_time = time.time()
+    print(f"Time taken for LLM invoke: {end_time - start_time:.2f} seconds\n")
     print(f"response: {response}")
     # Analizza il tipo di risposta
     if response.isdigit() and int(response) in range(1, 6):
-        return {"severity": int(response), 'next_node' : 'end'}  # Restituisce il numero
+        return {"severity": int(response), 'full_query': full_query}  # Restituisce il numero, 'next_node' : 'end'
     else:
-        return {"questions": response, 'next_node' : 'new_question'}  # Restituisce la domanda
-    
-
-def should_ask(state: TriageState):
-    #log_state("route_next_node", state)
-    return state['next_node']  # Restituisce il nome del prossimo nodo
+        return {"questions": response}  # , 'next_node' : 'new_question', Restituisce la domanda
 
 
 def create_triage_agent():

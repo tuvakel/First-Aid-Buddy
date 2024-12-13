@@ -2,6 +2,7 @@ from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph
 import pickle
 from typing import TypedDict, Annotated, List
+from langgraph.graph.message import add_messages
 import geocoder
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage
 from langchain_community.utilities import GoogleSerperAPIWrapper
@@ -15,7 +16,8 @@ import os
 import requests
 import streamlit as st
 import re
-
+from jinja2 import Template
+from PIL import Image
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
@@ -38,7 +40,7 @@ def get_user_location():
     location = geocoder.ip('me')
     return location.latlng if location.latlng else (None, None)
 
-def process_pdf(file_path):
+def process_pdf_emergency(file_path):
     """
     Carica e processa un file PDF per estrarre il contenuto delle pagine desiderate.
 
@@ -48,6 +50,7 @@ def process_pdf(file_path):
     Returns:
         str: Testo processato e unificato delle pagine selezionate.
     """
+    print('process_pdf_emergency')
     loader = PyPDFLoader(file_path)
     pages = loader.load()[40:]
     full_text = "\n".join([doc.page_content for doc in pages])
@@ -142,7 +145,7 @@ def process_pdf(file_path):
     ]
     return documents
 
-def create_bm25_retriever(documents, bm25_index_path="bm25_index.pkl"):
+def create_bm25_retriever_emergency(pdf_file_path, bm25_index_path="bm25_triage_index.pkl"):
     """
     Crea o carica un retriever BM25.
 
@@ -158,28 +161,37 @@ def create_bm25_retriever(documents, bm25_index_path="bm25_index.pkl"):
         #print("Caricamento retriever BM25 esistente.")
         with open(bm25_index_path, "rb") as f:
             bm25_retriever = pickle.load(f)
+            bm25_retriever.k = 3
+            documents = []
     else:
         #print("Creazione di un nuovo retriever BM25.")
         # Creazione del retriever BM25
+        documents = process_pdf_emergency(pdf_file_path)
         bm25_retriever = BM25Retriever.from_documents(documents)
-        
+        bm25_retriever.k = 3
         # Salva il retriever
         with open(bm25_index_path, "wb") as f:
             pickle.dump(bm25_retriever, f)
     
-    return bm25_retriever
+    return bm25_retriever, documents
 
-def create_retriever(documents, faiss_path="faiss_index"):
+def create_emergency_retriever(pdf_file_path,  bm25_index_path, faiss_path):
     # Step 1: Configura l'indice BM25 per i titoli
-    bm25_retriever = create_bm25_retriever(documents)
+    bm25_retriever, documents = create_bm25_retriever_emergency(pdf_file_path, bm25_index_path)
     # Step 2: Configura FAISS per i contenuti
     embedding = OpenAIEmbeddings(api_key=st.secrets["OPENAI"]["OPENAI_API_KEY"])
     if os.path.exists(faiss_path):
         vectorstore = FAISS.load_local(faiss_path, embeddings=embedding, allow_dangerous_deserialization=True)
+        print('load emergency retriever')
     else:
-        vectorstore = FAISS.from_documents(documents, embedding=embedding)
-        vectorstore.save_local(faiss_path)
-    similarity_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 3})
+        if documents:
+            vectorstore = FAISS.from_documents(documents, embedding=embedding)
+            vectorstore.save_local(faiss_path)
+        else:
+            documents = process_pdf_emergency(pdf_file_path)
+            vectorstore = FAISS.from_documents(documents, embedding=embedding)
+            vectorstore.save_local(faiss_path)
+    similarity_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 4})
 
     # Step 3: Configura un MultiRetriever
     ensemble_retriever = EnsembleRetriever(retrievers=[
@@ -190,7 +202,11 @@ def create_retriever(documents, faiss_path="faiss_index"):
 
 class AgentState(TypedDict):
     query: str
-    history: List[dict]
+    full_query:str
+    severity: int
+    messages: Annotated[list, add_messages]
+    prompt: Template
+
     rag_answer : str
     ensemble_retriever : EnsembleRetriever
 
@@ -214,26 +230,34 @@ class AgentState(TypedDict):
 
 def answer_from_rag(state:AgentState):
     log_state("answer_from_rag", state)
-    query = state['query']
+    # messages = state['messages']
+    # contextualize_q_system_prompt = f"""You are an AI assistant specialized in medical triage. Your task is to analyze the conversation history between the user and the AI, understand the user's current medical concerns, and summarize the key information. Do NOT answer the question, just reformulate it if needed and otherwise return it as is.
+
+    # ### Instructions:
+    # 1. **Triage Context**:
+    # - Review the conversation history to understand the user's medical concerns and symptoms.
+
+    # 2. **Focus on Current Query**:
+    # - Pay special attention to the user's latest messages to ensure the summary reflects their current problem or question.
+
+    # 3. **Be Concise and Relevant**:
+    # - Provide a clear and concise summary (1-3 sentences) of the user's current medical concern.
+    # - Highlight the symptoms and context provided by the user that are essential for triage.
+
+    # ### Input:
+    # Conversation History:
+    # {messages}
+
+    # ### Output:"""
+    # full_query = llm_8b.invoke(contextualize_q_system_prompt).content
+    full_query = state['full_query']
     ensemble_retriever = state['ensemble_retriever']
-    retrieved_docs = ensemble_retriever.invoke(query)
-    retrieved_info = [doc.page_content for doc in retrieved_docs]
-    prompt = f"""You are a highly experienced professional in emergency medicine with over 20 years of experience and certifications in Advanced Trauma Life Support (ATLS) and Prehospital Trauma Life Support (PHTLS). Your expertise lies in effectively managing life-threatening situations under pressure, with a calm demeanor and advanced skills that consistently save lives in critical moments.
-
-    Your task is to provide immediate and accurate guidance for managing life-threatening emergencies, ensuring safety, critical intervention, and strict adherence to advanced emergency response protocols. 
-
-    Your response must:
-    - Include a clear, step-by-step guide for life-saving actions, tailored to the situation described in the query.
-    - Reference the consulted materials by citing specific quotations or sections. Ensure that these citations are clear and directly support your guidance.
-    - Emphasize the importance of contacting emergency services promptly and provide a brief explanation of when and why it is essential to do so.
-
-    This is the user query: {query}
-    This is the history of your conversation: {state['history']}
-    These are the documents you should rely on for your response: {retrieved_info}
-    
-    If there are no specific information in the documents about the user query please return: 'NO INFO AVAILABLE'"""
-    response = llm_70b.invoke([HumanMessage(content=prompt)])
-    return {"rag_answer" : response.content.strip()}
+    retrieved_docs = ensemble_retriever.invoke(full_query)
+    retrieved_info = [doc.page_content for doc in retrieved_docs[:2]]
+    prompt = state['prompt'].render(full_query=full_query, retrieved_info=retrieved_info)
+    response = llm_70b.invoke([HumanMessage(content=prompt)]).content.strip()
+    print(f"response: {response}")
+    return {"rag_answer" : response, "full_query" : full_query}
 
 
 def log_state(node_name, state:AgentState):
@@ -251,7 +275,7 @@ def web_search(state: AgentState) -> str:
              If no pertinent information is found, it returns a message indicating the absence of results.
     """
     # Fase 1: Ricerca su Internet
-    #log_state("web_search", state)
+    log_state("web_search", state)
     query = state['web_search_keywords']
     if not isinstance(query, str):
         return "Nessun contenuto pertinente trovato su Internet"
@@ -290,13 +314,13 @@ def web_search(state: AgentState) -> str:
         return {"web_info" : "NO Info"}
     
 def extract_keywords_web_search(state:AgentState):
-   #log_state("extract_keywords_web_search", state)
-   query = state['query']
+   log_state("extract_keywords_web_search", state)
+   query = state['full_query']
    previous_keywords = state.get('web_search_keywords', '')
     # Costruisci il prompt
-   prompt = f"""You are a highly skilled virtual assistant with expertise in first aid. Your task is to extract the most relevant medical keywords from the user's query and the conversation history. These keywords will help optimize searches for first aid guidance on various websites. Follow these instructions carefully:
+   prompt = f"""You are a highly skilled virtual assistant with expertise in first aid. Your task is to extract the most relevant medical keywords from the user's query. These keywords will help optimize searches for first aid guidance on various websites. Follow these instructions carefully:
     
-    1. **Understand User Needs:** Analyze the user query and conversation history to understand the specific medical needs or issues.
+    1. **Understand User Needs:** Analyze the user query to understand the specific medical needs or issues.
     2. **Focus on Medical Relevance:** Extract only essential information about the medical issue or injury, including:
     - Type of injury or symptom (e.g., "cut," "burn," "panic attack").
     - Cause of the issue, if specified (e.g., "knife," "hot water," "bee sting").
@@ -322,7 +346,6 @@ def extract_keywords_web_search(state:AgentState):
     
    prompt += f"""    ### Input:
    Query: '{query}'
-   History: {state['history']}
    
    ### Output:
    Return strictly as a JSON object:"""
@@ -355,11 +378,11 @@ def should_web_search(state:AgentState):
 
 
 def extract_keywords_youtube(state:AgentState):
-   #log_state("extract_keywords_youtube", state)
-   query = state['query']
+   log_state("extract_keywords_youtube", state)
+   query = state['full_query']
    previous_keywords = state.get('keywords_youtube', '')
     # Costruisci il prompt
-   prompt = f"""From the following user query: '{query}' and the history of your conversation: '{state['history']}', extract the most relevant keywords to optimize the search for a video on YouTube. Translate them into English.
+   prompt = f"""From the following user medical situation: '{query}', extract the most relevant keywords to optimize the search for a video on YouTube. Translate them into English.
     Return just a Json object with the key: 'keywords'
     Here are examples of user queries and the corresponding optimized output:""" + \
    """
@@ -394,9 +417,16 @@ def should_continue_youtube(state:AgentState):
         return "retry"
     return "end"
 
+# Funzione per controllare se continuare
+def should_find_hospital(state:AgentState):
+    severity = state.get('severity')
+    if severity>2:
+        return "yes"
+    return "no"
+
 def create_response_from_web_search(state:AgentState):
     web_info = state.get('web_info', '')
-    query = state.get('query', '')
+    query = state.get('full_query', '')
     prompt = f"""Using the following context: {web_info}, provide a detailed and comprehensive response to the user query: "{query}". Focus on offering practical and actionable support for someone already facing the issue. Avoid mentioning precautions unless explicitly relevant to resolving the problem. Ensure your answer is clear, accurate, and concise, and limit it in a range of 400-800 words."""
     response = llm_70b.invoke([HumanMessage(content=prompt)])
     return {"web_answer" : response.content}
@@ -539,7 +569,7 @@ def combine_results(state:AgentState):
     
     return {"final_result": [doc_answer, google_maps_url, hospital_name, video_result, video_title]}
 
-def create_langgraph_agent():
+def create_emergency_agent():
     # Creazione del grafo
     graph = StateGraph(AgentState)
 
@@ -601,11 +631,19 @@ def create_langgraph_agent():
 
     # Collegamenti ai flussi paralleli
     graph.add_edge("start_emergency_bot", "extract_keywords_youtube")
-    graph.add_edge("start_emergency_bot", "get_google_maps_url")
+    graph.add_conditional_edges(
+        "start_emergency_bot",
+        should_find_hospital,
+        {
+            "yes": "get_google_maps_url",
+            "no": "combine_results",
+        }
+    )
     graph.add_edge("start_emergency_bot", "answer_from_rag")
 
     graph.set_finish_point("combine_results")
 
     # Compilazione del grafo
     app = graph.compile()
+    #Image(app.get_graph().draw_mermaid_png()).save('graph.png')
     return app
