@@ -17,8 +17,8 @@ if 'session_id' not in st.session_state:
 else:
     session_id = st.session_state.session_id
 
-if st.checkbox("Check my location", value=True):
-    with st.spinner("Retrieving location..."):
+if st.sidebar.checkbox("Usa la mia informazione geografica", value=True):
+    with st.spinner("Cercando la posizione..."):
         user_location_info = None
         while user_location_info is None:
             user_location_info = get_geolocation()
@@ -27,7 +27,7 @@ if st.checkbox("Check my location", value=True):
     user_location_info = user_location_info.get('coords', None)
     user_location = (user_location_info['latitude'], user_location_info['longitude'])
 else:
-    user_location = (3,4)
+    user_location = (None, None)
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
@@ -164,8 +164,8 @@ def main():
                     color = severity_to_color[severity]
                     # Mostra un pallino colorato
                     st.markdown(
-                        f"<span style='font-size: 16px;'>Al tuo codice è stato affidato codice {severity}</span>"
-                        f"<div style='display: inline-block; width: 20px; height: 20px; background-color: {color}; border-radius: 50%;'></div> ",
+                        f"<span style='font-size: 16px;'>Al tuo codice è stato affidato <strong>codice {severity}</strong></span>",
+                        # f"<div style='display: inline-block; width: 20px; height: 20px; background-color: {color}; border-radius: 50%;'></div> ",
                         unsafe_allow_html=True
                     )
                     response = severity

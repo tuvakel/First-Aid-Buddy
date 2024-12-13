@@ -24,6 +24,7 @@ from langchain.vectorstores import FAISS
 #from langchain.embeddings import OpenAIEmbeddings
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from langchain.schema import Document
+import io
 
 
 llm_70b = ChatGroq(model="llama-3.1-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
@@ -382,23 +383,24 @@ def extract_keywords_youtube(state:AgentState):
    query = state['full_query']
    previous_keywords = state.get('keywords_youtube', '')
     # Costruisci il prompt
-   prompt = f"""From the following user medical situation: '{query}', extract the most relevant keywords to optimize the search for a video on YouTube. Translate them into English.
+   prompt = f"""From the following user medical situation: '{query}', extract the most relevant keywords to optimize the search for a video on YouTube. 
+    You **MUST** translate the user medical situation into English, just to find keywords.
     Return just a Json object with the key: 'keywords'
     Here are examples of user queries and the corresponding optimized output:""" + \
-   """
+    """
     1. Query: "I am feeling anxious, I think I am having a panic attack. What should I do?" 
        Output : {"keywords": "panic attack, first aid"}
-    2. Query: "Cosa devo fare se mi punge un'ape?"
+    2. Query: "What should I do if I get stung by a bee?"
        Output : {"keywords": "bee sting treatment, first aid"}
-    3. Query: "Come medicare un taglio profondo fatto con un coltello?"
+    3. Query: "Cosa succede se sono stato punto da un ape?"
+       Output : {"keywords": "bee sting treatment, first aid"}
+    3. Query: "How to treat a deep cut made with a knife?"
        Output : {"keywords": "knife deep cut treatment, first aid"}
-    4. Query: "Come trattare una scottatura con acqua bollente?"
+    4. Query: "How to treat a burn from boiling water?"
        Output : {"keywords": "boiling water burn, first aid"}
-    5. Query: "Cosa fare in caso di reazione allergica improvvisa?"
+    5. Query: "What to do in case of a sudden allergic reaction?"
        Output : {"keywords": "allergic reaction help, first aid"} 
-    6. Query: "Un mio amico sta avendo un attacco di panico"
-       Output : {"keywords": "panic attack, first aid"} 
-       """
+    """
 
    if previous_keywords:
         prompt += f" Previous search with keywords '{previous_keywords}' returned no results. Try a different search query."
@@ -421,8 +423,8 @@ def should_continue_youtube(state:AgentState):
 def should_find_hospital(state:AgentState):
     severity = state.get('severity')
     if severity>2:
-        return "yes"
-    return "no"
+        return "high_severity"
+    return "low_severity"
 
 def create_response_from_web_search(state:AgentState):
     web_info = state.get('web_info', '')
@@ -500,7 +502,7 @@ def search_youtube_videos(state:AgentState) -> str:
                 for item in data["items"]:
                     video_id = item["id"]["videoId"]
                     video_title = item["snippet"]["title"]
-                    response = llm_70b.invoke([HumanMessage(content=prompt.format(query=state['query'], video_title=video_title))]).content
+                    response = llm_70b.invoke([HumanMessage(content=prompt.format(query=state['full_query'], video_title=video_title))]).content
                     if response.strip().lower() == 'yes':
                         return {"search_results": f"https://www.youtube.com/watch?v={video_id}",
                                 "video_title": video_title}
@@ -569,6 +571,7 @@ def combine_results(state:AgentState):
     
     return {"final_result": [doc_answer, google_maps_url, hospital_name, video_result, video_title]}
 
+
 def create_emergency_agent():
     # Creazione del grafo
     graph = StateGraph(AgentState)
@@ -635,8 +638,8 @@ def create_emergency_agent():
         "start_emergency_bot",
         should_find_hospital,
         {
-            "yes": "get_google_maps_url",
-            "no": "combine_results",
+            "high_severity": "get_google_maps_url",
+            "low_severity": "combine_results",
         }
     )
     graph.add_edge("start_emergency_bot", "answer_from_rag")
@@ -645,5 +648,10 @@ def create_emergency_agent():
 
     # Compilazione del grafo
     app = graph.compile()
-    #Image(app.get_graph().draw_mermaid_png()).save('graph.png')
+    
+    # Store the image in memory using BytesIO
+    img_bytes = app.get_graph().draw_mermaid_png()
+    with open('../presentation/agents/specialized.png', 'wb') as f:
+        f.write(img_bytes)
+
     return app
