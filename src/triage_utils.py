@@ -12,7 +12,9 @@ from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from concurrent.futures import ThreadPoolExecutor
 from langchain.schema import Document
 import re
+from jinja2 import Template
 import time
+import json
 #from langgraph.checkpoint.memory import MemorySaver
 #memory = MemorySaver()
 import pickle
@@ -49,7 +51,7 @@ def process_pdf_triage(file_path:str):
     return documents
 
 
-def create_bm25_retriever_triage(pdf_file_path:str, bm25_index_path="bm25_triage_index.pkl"):
+def create_bm25_retriever_triage(pdf_file_path:str, bm25_index_path):
     """
     Crea o carica un retriever BM25.
 
@@ -130,7 +132,16 @@ def start_emergency_bot(state:TriageState):
 def log_state(node_name, state:TriageState):
     print(f"Node '{node_name}' State: {state}")
 
-
+def extract_json_from_response(response_text: str) -> dict:
+    cleaned_resp = response_text.strip()
+    match = re.search(r'json\s*(\{.*?\})\s*', cleaned_resp, re.DOTALL)
+    if match:
+        cleaned_resp = match.group(1)
+    try:
+        return json.loads(cleaned_resp)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON decoding error: {e}. Response received: {response_text}")
+    
 def triage_evaluation(state:TriageState):
     messages = state['messages']
 
@@ -161,11 +172,11 @@ def triage_evaluation(state:TriageState):
     print(f"len_retrieved_docs: {len(retrieved_docs)}")
     retrieved_info = [doc.page_content for doc in retrieved_docs]
     full_retrieved_info = " ".join([message for message in retrieved_info[:2]])
-    system_prompt = f""" Sei un professionista altamente esperto in medicina d'urgenza, specializzato in Triage. Il tuo compito è valutare la gravità della situazione dell'utente fornendo un punteggio da 1 a 5 oppure chiedere una domanda concisa per ottenere ulteriori informazioni, se necessario.
+    system_prompt = Template("""Sei un professionista altamente esperto in medicina d'urgenza, specializzato in Triage. Il tuo compito è valutare la gravità della situazione dell'utente fornendo un punteggio da 1 a 5 oppure chiedere una domanda concisa per ottenere ulteriori informazioni, se necessario.
 
     ### Istruzioni:
     1. **Valutazione della gravità**:
-        - Usa le informazioni fornite nei documenti e nella conversazione per determinare la gravità della situazione dell'utente.
+        - Analizza la situazione dell'utente per determinarne la gravità utilizzando le informazioni fornite nei documenti.
         - Il punteggio è definito come:
         - `1`: Situazione di minima gravità, nessun pericolo immediato.
         - `5`: Emergenza critica e potenzialmente letale, richiede intervento immediato.
@@ -173,36 +184,49 @@ def triage_evaluation(state:TriageState):
     2. **Richiesta di ulteriori informazioni**:
         - Se le informazioni disponibili non sono sufficienti, chiedi una domanda diretta e specifica per ottenere chiarimenti.
 
+    3. **Formato della risposta**:
+    - Rispondi esclusivamente in italiano. La risposta deve essere un JSON con uno dei seguenti formati:
+     - **Se hai abbastanza informazioni**:
+       {
+         "Reasoning": "Spiega brevemente la tua valutazione.",
+         "Score": "Punteggio tra 1 e 5"
+       }
+     - **Se hai bisogno di ulteriori informazioni**:
+       {
+         "Reasoning": "Spiega perché sono necessarie più informazioni.",
+         "Question": "Domanda diretta e specifica."
+       }
+
     ### Esempi di output:
     #### Scenario 1:
     Hai abbastanza informazioni per valutare la gravità.
-    Output: 3
+    Output: {"Reasoning": "Sulla base delle informazioni che ho, il taglio non mi sembra grave dunque la gravità della situazione è piuttosto bassa", "Score" : "2"} 
 
     #### Scenario 2:
     Hai bisogno di ulteriori informazioni.
-    Output: Hai mai avuto reazioni allergiche nella tua vita?
+    Output: {"Reasoning": "Non ho ancora abbastanza informazioni per determinare la gravità della situazione. Mi occorre effettuare un'altra domanda.", "Question" : "Hai mai avuto reazioni allergiche nella tua vita?"} 
+
 
     ### Documenti:
-    {full_retrieved_info}
+    {{full_retrieved_info}}
 
     ### Situazione medica dell'utente:
-    {full_query}
-    ### Nota:
-    - Rispondi esclusivamente in italiano.
-    - Evita risposte prolisse; usa solo un punteggio o una domanda diretta.
-    """
+    {{full_query}}
+    """)
+    system_prompt = system_prompt.render(full_retrieved_info=full_retrieved_info, full_query=full_query)
     updated_prompt = [HumanMessage(system_prompt)]
-    print(f"updated_prompt: {updated_prompt}")
+    #print(f"updated_prompt: {updated_prompt}")
     start_time = time.time()
     response = llm_70b.invoke(updated_prompt).content
     end_time = time.time()
     print(f"Time taken for LLM invoke: {end_time - start_time:.2f} seconds\n")
     print(f"response: {response}")
+    response = extract_json_from_response(response)
     # Analizza il tipo di risposta
-    if response.isdigit() and int(response) in range(1, 6):
-        return {"severity": int(response), 'full_query': full_query}  # Restituisce il numero, 'next_node' : 'end'
+    if 'Score' in response:
+        return {"severity": response['Score'], 'full_query': full_query}  # Restituisce il numero, 'next_node' : 'end'
     else:
-        return {"questions": response}  # , 'next_node' : 'new_question', Restituisce la domanda
+        return {"questions": response['Question']}  # , 'next_node' : 'new_question', Restituisce la domanda
 
 
 def create_triage_agent():

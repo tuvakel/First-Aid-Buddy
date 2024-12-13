@@ -146,7 +146,7 @@ def process_pdf_emergency(file_path):
     ]
     return documents
 
-def create_bm25_retriever_emergency(pdf_file_path, bm25_index_path="bm25_triage_index.pkl"):
+def create_bm25_retriever_emergency(pdf_file_path, bm25_index_path):
     """
     Crea o carica un retriever BM25.
 
@@ -455,39 +455,43 @@ def search_youtube_videos(state:AgentState) -> str:
                       ]  #'UCTVZkcCKSqFD0TTJ8BjYLDQ' Croce Rossa, 
     max_results = 3
     prompt = """
-    You are tasked with determining whether a YouTube video is relevant to a user's query. The query typically describes a **medical problem involving a person**, unless explicitly stated otherwise. Analyze the query and the video title, and decide if the video could be useful. Respond strictly with "YES" or "NO". Do not provide any explanations or additional information.
+    You are tasked with determining if a YouTube video is relevant to a described medical situation. The situation provides details about a **medical problem affecting a person**. Analyze the situation and the video title, and decide if the video could be useful. Respond strictly with "YES" or "NO". Do not provide explanations or additional information.
 
     ### Guidelines:
-    1. Assume the query pertains to a medical issue affecting a person unless otherwise specified.
-    2. Focus only on the **relevance** of the video to the user's query.
-    3. Base your decision solely on the content of the query and the video title.
-    4. Language differences are not relevant.
-    4. Return only "YES" or "NO". No explanations.
+    1. Assume the described situation pertains to a medical issue involving a person unless explicitly stated otherwise.
+    2. Focus only on the **relevance** of the video to the medical situation described.
+    3. Base your decision solely on the details provided in the medical situation and the video title.
+    4. Ignore language differences between the medical situation and video title.
+    5. Respond with **"YES"** or **"NO"** only. Do not provide any explanations.
 
-    ### Format:
-    - Input: User query and video title.
-    - Output: "YES" or "NO".
+    ### Input Format:
+    - Medical Situation: [Description of the patient's medical situation]
+    - Video Title: [Title of the YouTube video]
+
+    ### Output Format:
+    - "YES" or "NO"
 
     ### Examples:
-    1. Input: Query: "I got stung by a bee", Video title: "Allergic Reactions in Dogs".
+    - Medical Situation: "Il paziente è stato punto da un'ape e non ha mai avuto reazioni allergiche né sintomi come gonfiore, prurito o difficoltà respiratorie dopo essere stato punto da un insetto in passato."  
+    Video Title: "First Aid for Bee Stings"  
+    Output: "YES"
+
+    - Medical Situation: "Il paziente è stato punto da un'ape, ma soffre di allergie stagionali gravi."  
+    Video Title: "How to Treat Seasonal Allergies"  
     Output: "NO"
 
-    1. Input: Query: "Mi ha punto un'ape", Video title: "First Aid for Bee Stings".
+    - Medical Situation: "The patient accidentally cut their hand with a knife and is experiencing minor bleeding."  
+    Video Title: "Emergency Care for Cuts"  
     Output: "YES"
 
-    2. Input: Query: "How to treat a bee sting?", Video title: "First Aid for Bee Stings".
-    Output: "YES"
-
-    3. Input: Query: "How to help a dog with an allergic reaction?", Video title: "Allergic Reactions in Dogs".
-    Output: "YES"
-
-    4. Input: Query: "How to treat a deep knife cut?", Video title: "Emergency Care for Deep Cuts".
+    - Medical Situation: "Una persona sta avendo un infarto."  
+    Video Title: "First Aid - Heart Attack"  
     Output: "YES"
 
     ### Now process the following input:
-    Query: {query}
-    Video title: {video_title}
-"""
+    Medical Situation: {query}  
+    Video Title: {video_title}
+    """
     try:
         for channel_id in allowed_channels:
             params = {
