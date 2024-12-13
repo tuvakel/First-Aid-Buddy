@@ -110,11 +110,11 @@ def create_triage_retriever(pdf_file_path:str, bm25_index_path:str, faiss_path:s
 
 
 severity_to_color = {
-    '1': "#00FF00",  # Verde
-    '2': "#ADFF2F",  # Giallo-verde
-    '3': "#FFFF00",  # Giallo
-    '4': "#FFA500",  # Arancione
-    '5': "#FF0000"   # Rosso
+    1: "#00FF00",  # Verde
+    2: "#ADFF2F",  # Giallo-verde
+    3: "#FFFF00",  # Giallo
+    4: "#FFA500",  # Arancione
+    5: "#FF0000"   # Rosso
 }
 
 

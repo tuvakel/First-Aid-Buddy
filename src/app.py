@@ -160,6 +160,7 @@ def main():
                 #config = {"configurable": {"thread_id": "1"}}
                 output = triage_agent.invoke(input)
                 severity = output.get('severity', None)
+                severity = int(severity) if severity is not None else None
                 if severity:
                     color = severity_to_color[severity]
                     # Mostra un pallino colorato
