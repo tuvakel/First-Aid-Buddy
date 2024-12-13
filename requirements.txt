@@ -22,3 +22,17 @@ requests-toolbelt==1.0.0
 streamlit==1.40.2
 typing-inspect==0.9.0
 typing_extensions==4.12.2
+beautifulsoup4
+gtts
+google-cloud-storage
+streamlit__js_eval
+langchain
+langchain_groq
+langchain_community
+langgraph
+python-dotenv
+pypdf
+geocoder
+rank_bm25
+langchain_openai
+faiss-cpu
