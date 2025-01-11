@@ -9,5 +9,6 @@ src/test.ipynb
 presentation/*
 !presentation/architecture.png
 !presentation/presentation.pdf
+!presentation/agents
 .DS_Store
 notebooks/*
