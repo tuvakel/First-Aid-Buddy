@@ -17,7 +17,7 @@ COPY . /app/
 EXPOSE 8501
 
 # Step 7: Change the working directory to 'src' and run the Streamlit app
-WORKDIR /app/src
+WORKDIR /app/
 
 # Step 8: Run the Streamlit app from the 'src' directory
 CMD ["streamlit", "run", "app.py"]

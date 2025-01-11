@@ -256,7 +256,7 @@ def create_triage_agent():
 
     # Store the image in memory using BytesIO
     img_bytes = app.get_graph().draw_mermaid_png()
-    with open('../presentation/agents/triage.png', 'wb') as f:
+    with open('presentation/agents/triage.png', 'wb') as f:
         f.write(img_bytes)
 
     return app

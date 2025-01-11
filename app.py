@@ -1,11 +1,11 @@
 import streamlit as st
-from utils import *
+from src.utils import *
 import tempfile
 import hashlib
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-#from crewai_utils import init_crew
-from triage_utils import create_triage_retriever, create_triage_agent, severity_to_color
-from emergency_utils import create_emergency_retriever, create_emergency_agent
+#from src.crewai_utils import init_crew
+from src.triage_utils import create_triage_retriever, create_triage_agent, severity_to_color
+from src.emergency_utils import create_emergency_retriever, create_emergency_agent
 from streamlit_js_eval import get_geolocation
 import time
 
@@ -35,10 +35,10 @@ YOUTUBE_API_KEY = st.secrets["YOUTUBE"]["YOUTUBE_API_KEY"]
 GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS"]["GOOGLE_MAPS_API_KEY"]
 llm_text_model_name = "llama3-70b-8192"
 llm_audio_model_name = "whisper-large-v3"
-file_path_triage = "../data/doc_triage/pdf/Manuale-Triage.pdf"
-file_path_emergency = "../data/doc_emergency/pdf/manuale_primo_soccorso.pdf"
-prompt_emergency_file_path = "templates/emergency_prompt.jinja"
-prompt_everyday_file_path = "templates/everyday_prompt.jinja"
+file_path_triage = "data/doc_triage/pdf/Manuale-Triage.pdf"
+file_path_emergency = "data/doc_emergency/pdf/manuale_primo_soccorso.pdf"
+prompt_emergency_file_path = "src/templates/emergency_prompt.jinja"
+prompt_everyday_file_path = "src/templates/everyday_prompt.jinja"
 prompt_emergency = load_template(prompt_emergency_file_path)
 prompt_everyday = load_template(prompt_everyday_file_path)
 ensemble_retriever_emergency = None
@@ -64,8 +64,8 @@ def load_emergency_agent():
     return create_emergency_agent()
 
 #documents = load_documents(_file_path=file_path)
-ensemble_retriever_triage = load_triage_retriever(file_path_triage, bm25_path="../data/bm_25/bm25_triage_index.pkl", faiss_path="../data/faiss/faiss_triage_index")
-ensemble_retriever_emergency = load_emergency_retriever(file_path_emergency, bm25_path="../data/bm_25/bm25_emergency_index.pkl", faiss_path="../data/faiss/faiss_emergency_index")
+ensemble_retriever_triage = load_triage_retriever(file_path_triage, bm25_path="data/bm_25/bm25_triage_index.pkl", faiss_path="data/faiss/faiss_triage_index")
+ensemble_retriever_emergency = load_emergency_retriever(file_path_emergency, bm25_path="data/bm_25/bm25_emergency_index.pkl", faiss_path="data/faiss/faiss_emergency_index")
 #crew = init_crew()
 triage_agent = load_triage_agent()
 emergency_agent = load_emergency_agent()
@@ -111,9 +111,9 @@ def main():
     #        image_base64 = convert_image_to_base64(captured_image, resize=50)
 
     if (query or (query and image_base64)) or (audio_value or (audio_value and image_base64)):
-        #sys_message_template = load_template("templates/sys_message_template.jinja")
+        #sys_message_template = load_template("src/templates/sys_message_template.jinja")
         #sys_message = sys_message_template.render()
-        trscb_message_template = load_template("templates/trscb_message_template.jinja")
+        trscb_message_template = load_template("src/templates/trscb_message_template.jinja")
         trscb_message = trscb_message_template.render()
         
         if audio_value:
