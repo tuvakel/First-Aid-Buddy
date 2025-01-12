@@ -9,6 +9,7 @@ from src.emergency_utils import create_emergency_retriever, create_emergency_age
 from streamlit_js_eval import get_geolocation
 import time
 
+
 st.set_page_config(page_title="llama-first-aid", page_icon="🦙")
 # Hash session ID using hashlib
 if 'session_id' not in st.session_state:
@@ -17,8 +18,9 @@ if 'session_id' not in st.session_state:
 else:
     session_id = st.session_state.session_id
 
-if st.sidebar.checkbox("Usa la mia informazione geografica", value=True):
-    with st.spinner("Cercando la posizione..."):
+
+if st.sidebar.checkbox("Use my current location", value=False):
+    with st.spinner("Searching for location..."):
         user_location_info = None
         while user_location_info is None:
             user_location_info = get_geolocation()
@@ -28,6 +30,8 @@ if st.sidebar.checkbox("Usa la mia informazione geografica", value=True):
     user_location = (user_location_info['latitude'], user_location_info['longitude'])
 else:
     user_location = (None, None)
+
+language, detailed_location = get_language(user_location)
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
@@ -77,23 +81,9 @@ gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVIC
 
 # Main function
 def main():
-
-    # Additional toggles for fine-grained control of image upload
-    # st.sidebar.header("Modalità")
-    # allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
-
-    # Sidebar for project details
-    st.sidebar.header("**Dettagli**")
-    st.sidebar.write(""" 
-        Sei pronto a intervenire in un'emergenza sanitaria?
-         
-        Con l'app **LLAMA** (Life-saving Live Assistant for Medical Assistance) **FIRST AID**, 
-        avrai un operatore sanitario esperto sempre al tuo fianco. Che tu sia un neofita o abbia già esperienza nel primo soccorso, 
-        l'app ti guiderà passo dopo passo nella gestione di situazioni critiche, offrendoti consigli rapidi e precisi. 
-        Grazie a un'interfaccia intuitiva, potrai ricevere risposte in tempo reale alle domande cruciali e ottenere le istruzioni giuste per 
-        intervenire al meglio. Inoltre, avrai accesso a video tutorial utili per apprendere e perfezionare le manovre di soccorso. Non lasciare
-        nulla al caso, con **LLAMA** ogni emergenza diventa più gestibile!
-    """)
+    st.sidebar.markdown(f"**Location details:** {detailed_location}" if language != "it" else f"**Dettagli posizione:** {detailed_location}")
+    
+    get_sidebar(language)
 
     st.title("LLAMA FIRST AID 🦙")
 
@@ -102,8 +92,9 @@ def main():
     image_base64 = ""
     audio_value = ""
 
-    query = st.chat_input("Descrivi il problema o la situazione di emergenza")
-    audio_value = st.audio_input("Parla col tuo assistente (opzionale)")
+    query = st.chat_input("Describe your issue or emergency" if language != "it" 
+                         else "Descrivi il problema o la situazione di emergenza")
+    audio_value = st.audio_input("Speak with your assistant (optional)" if language != "it" else "Parla col tuo assistente (opzionale)")
 
     #if allow_images:
     #    captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
@@ -111,22 +102,13 @@ def main():
     #        image_base64 = convert_image_to_base64(captured_image, resize=50)
 
     if (query or (query and image_base64)) or (audio_value or (audio_value and image_base64)):
-        #sys_message_template = load_template("src/templates/sys_message_template.jinja")
-        #sys_message = sys_message_template.render()
         trscb_message_template = load_template("src/templates/trscb_message_template.jinja")
         trscb_message = trscb_message_template.render()
         
         if audio_value:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
                 temp_audio_path = save_uploaded_audio(audio_value.getvalue(), temp_audio_file.name)
-            query = transcribe_audio(llm, llm_audio_model_name, temp_audio_path, trscb_message)
-        
-        # # Display user message in chat message container
-        # with st.chat_message("user"):
-        #     if query:
-        #         st.markdown(f"**Testo:** {query}")
-        #     if image_base64:
-        #         st.markdown("**Immagine catturata**")
+            query = transcribe_audio(llm, llm_audio_model_name, temp_audio_path, trscb_message, language)
             
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = [HumanMessage(content=query)]
@@ -149,12 +131,12 @@ def main():
                 with st.chat_message(role):
                     st.markdown(message.content)
             
-        with st.spinner("Sto pensando per capire la gravità della situazione..."):
+        with st.spinner("Assessing emergency severity" if language != "it" else "Sto pensando per capire la gravità della situazione..."):
             # Call the LLM with the Jinja prompt and DataFrame context
             with st.chat_message("assistant"):
                 input = {
-                    "messages":st.session_state.chat_history,
-                    "ensemble_retriever_triage" : ensemble_retriever_triage,
+                    "messages": st.session_state.chat_history,
+                    "ensemble_retriever_triage": ensemble_retriever_triage,
                     "questions" : []
                 }
                 #config = {"configurable": {"thread_id": "1"}}
@@ -165,7 +147,8 @@ def main():
                     color = severity_to_color[severity]
                     # Mostra un pallino colorato
                     st.markdown(
-                        f"<span style='font-size: 16px;'>Al tuo codice è stato affidato <strong>codice {severity}</strong></span>",
+                        (f"<span style='font-size: 16px;'>Emergency has <strong>severity {severity}</strong></span>" if language != "it"
+                        else f"<span style='font-size: 16px;'>Al tuo codice è stato affidato <strong>codice {severity}</strong></span>"),
                         # f"<div style='display: inline-block; width: 20px; height: 20px; background-color: {color}; border-radius: 50%;'></div> ",
                         unsafe_allow_html=True
                     )
@@ -175,16 +158,22 @@ def main():
                     response = output['questions'][-1].content
                     st.markdown(response, unsafe_allow_html=True)    
                 st.session_state.chat_history.extend([AIMessage(content=str(response))])
+
         if severity:
-            with st.spinner("L'agente per le emergenze sta pensando per trovare una soluzione..." if severity >2 else "L'agente per le situazioni comuni sta pensando per trovare una soluzione..."):
+            with st.spinner(
+                ("The emergency agent is thinking to find a solution..." if severity > 2 else
+                "The agent for common situations is thinking to find a solution...") if language != "it" else
+                ("L'agente per le emergenze sta pensando per trovare una soluzione..." if severity > 2 else
+                "L'agente per le situazioni comuni sta pensando per trovare una soluzione...")
+            ):
                 # Call the LLM with the Jinja prompt and DataFrame context
                 with st.chat_message("assistant"):
                     input = {
                         "full_query": query,
-                        "prompt": prompt_emergency if severity >2 else prompt_everyday,
+                        "prompt": prompt_emergency if severity>2 else prompt_everyday,
                         "severity" : severity,
                         "history" : st.session_state.chat_history[:-1],
-                        "retry_count_youtube": 0,  # Inizializzazione del conteggio
+                        "retry_count_youtube": 0,
                         "retry_count_web_search": 0, 
                         "user_location" : user_location,
                         "ensemble_retriever" : ensemble_retriever_emergency,
@@ -199,12 +188,12 @@ def main():
 
                     if severity >2:
                         # Mostra il link di Google Maps
-                        st.markdown(f"### Ospedale più vicino: **{hospital_name}**")
+                        st.markdown(f"### Nearest hospital: **{hospital_name}**" if language != "it" else f"### Ospedale più vicino: **{hospital_name}**")
                         st.markdown(f"[Google Maps]({google_maps_link})")
 
                     if video_title:
                         # Mostra il video di YouTube
-                        st.markdown(f"## Video YouTube:")
+                        st.markdown(f"## YouTube Video:" if language != "it" else f"## Video YouTube:")
                         st.markdown(f"### {video_title}:")
                     st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
             

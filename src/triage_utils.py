@@ -134,7 +134,7 @@ def log_state(node_name, state:TriageState):
 
 def extract_json_from_response(response_text: str) -> dict:
     cleaned_resp = response_text.strip()
-    match = re.search(r'json\s*(\{.*?\})\s*', cleaned_resp, re.DOTALL)
+    match = re.search(r'\s*(\{.*?\})\s*', cleaned_resp, re.DOTALL)
     if match:
         cleaned_resp = match.group(1)
     try:
@@ -185,7 +185,7 @@ def triage_evaluation(state:TriageState):
         - Se le informazioni disponibili non sono sufficienti, chiedi una domanda diretta e specifica per ottenere chiarimenti.
 
     3. **Formato della risposta**:
-    - Rispondi esclusivamente in italiano. La risposta deve essere un JSON con uno dei seguenti formati:
+    - La risposta deve essere un JSON con uno dei seguenti formati:
      - **Se hai abbastanza informazioni**:
        {
          "Reasoning": "Spiega brevemente la tua valutazione.",
@@ -197,21 +197,33 @@ def triage_evaluation(state:TriageState):
          "Question": "Domanda diretta e specifica."
        }
 
+    4. **Traduzione**:
+      - Se la situazione medica dell'utente non è in italiano, traduci il testo nei campi "Reasoning" e "Question" in inglese. Altrimenti, mantieni tutto in italiano.
+
+                                                     
     ### Esempi di output:
-    #### Scenario 1:
-    Hai abbastanza informazioni per valutare la gravità.
+    #### Scenario 1.1 (italiano):
+    Hai abbastanza informazioni per valutare la gravità E la situazione medica descritta dall'utente **è in italiano**:.
     Output: {"Reasoning": "Sulla base delle informazioni che ho, il taglio non mi sembra grave dunque la gravità della situazione è piuttosto bassa", "Score" : "2"} 
 
-    #### Scenario 2:
-    Hai bisogno di ulteriori informazioni.
+    #### Scenario 2.1 (italiano):
+    Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **è** in italiano**:.
     Output: {"Reasoning": "Non ho ancora abbastanza informazioni per determinare la gravità della situazione. Mi occorre effettuare un'altra domanda.", "Question" : "Hai mai avuto reazioni allergiche nella tua vita?"} 
 
+    ### Scenario 1.2 (inglese):
+    Hai abbastanza informazioni per valutare la gravità E la situazione medica descritta dall'utente **NON è in italiano**:
+    Output: {"Reasoning": "Based on the information I have, the cut does not seem serious, so the severity of the situation is quite low.", "Score" : "2"} 
 
+    ### Scenario 2.2 (inglese):
+    Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **NON è in italiano**:
+    Output: {"Reasoning": "I don't have enough information yet to determine the severity of the situation. I need to ask another question.", "Question": "Have you ever had any allergic reactions in your life?"} 
+                                                  
     ### Documenti:
     {{full_retrieved_info}}
 
     ### Situazione medica dell'utente:
     {{full_query}}
+    
     """)
     system_prompt = system_prompt.render(full_retrieved_info=full_retrieved_info, full_query=full_query)
     updated_prompt = [HumanMessage(system_prompt)]

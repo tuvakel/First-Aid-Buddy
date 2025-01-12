@@ -1,3 +1,4 @@
+import streamlit as st
 from groq import Groq
 from jinja2 import Environment, FileSystemLoader, Template
 from PIL import Image
@@ -10,6 +11,59 @@ from google.cloud import storage
 from google.auth import credentials
 from datetime import datetime
 from gtts import gTTS
+import requests
+
+
+def get_language(location):
+    url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
+    headers = {
+        'User-Agent': 'LLamaFirstAid/1.0'
+    }
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        country = data.get('address', {}).get('country', None)
+        detailed_location = data.get('address', {}).get('county', None) \
+            + ', ' + data.get('address', {}).get('state', None)  \
+            + ', ' + data.get('address', {}).get('country', None)
+        if country.lower() == 'italia':
+            return 'it', detailed_location
+        else: return 'en', detailed_location
+    else:
+        print(f"Error getting language from location") 
+        return 'en', 'Disabled'
+
+
+def get_sidebar(language):
+    if (language == "it"):
+        # st.sidebar.header("Modalità")
+        # allow_images = st.sidebar.checkbox("Abilita il caricamento delle immagini (EU-NON COMPLIANT)")
+        st.sidebar.header("**Dettagli**")
+        st.sidebar.write(""" 
+            Sei pronto a intervenire in un'emergenza sanitaria?
+            
+            Con l'app **LLAMA** (Life-saving Live Assistant for Medical Assistance) **FIRST AID**, 
+            avrai un operatore sanitario esperto sempre al tuo fianco. Che tu sia un neofita o abbia già esperienza nel primo soccorso, 
+            l'app ti guiderà passo dopo passo nella gestione di situazioni critiche, offrendoti consigli rapidi e precisi. 
+            Grazie a un'interfaccia intuitiva, potrai ricevere risposte in tempo reale alle domande cruciali e ottenere le istruzioni giuste per 
+            intervenire al meglio. Inoltre, avrai accesso a video tutorial utili per apprendere e perfezionare le manovre di soccorso. Non lasciare
+            nulla al caso, con **LLAMA** ogni emergenza diventa più gestibile!
+        """)
+    else:
+        # st.sidebar.header("Modalità")
+        # allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
+        st.sidebar.header("**Details**")
+        st.sidebar.write(""" 
+            Are you ready to respond in a medical emergency?
+            
+            With the **LLAMA** app (Life-saving Live Assistant for Medical Assistance) **FIRST AID**, 
+            you'll have an experienced healthcare operator by your side at all times. Whether you're a beginner or already have experience in first aid, 
+            the app will guide you step by step in managing critical situations, providing you with quick and accurate advice. 
+            Thanks to an intuitive interface, you’ll be able to receive real-time answers to crucial questions and get the right instructions to 
+            respond effectively. Additionally, you'll have access to useful video tutorials to learn and perfect lifesaving techniques. Don’t leave 
+            anything to chance, with **LLAMA** every emergency becomes more manageable!
+        """)
 
 
 def resize_image(image_file, new_width):
@@ -97,7 +151,7 @@ def testo_to_utf8(testo, mapping = mapping):
     return testo
 
 
-def transcribe_audio(llm, llm_audio_model_name, audio_file_path, trscb_message):
+def transcribe_audio(llm, llm_audio_model_name, audio_file_path, trscb_message, language):
     try:
         with open(audio_file_path, "rb") as file:
             transcription = llm.audio.transcriptions.create(
@@ -105,7 +159,7 @@ def transcribe_audio(llm, llm_audio_model_name, audio_file_path, trscb_message):
                 model=llm_audio_model_name,
                 prompt=trscb_message,
                 response_format="text",
-                language="it",
+                language=language,
             )
         return transcription  # This is now directly the transcription text
     except Exception as e:
