@@ -347,9 +347,7 @@ def extract_keywords_web_search(state:AgentState):
     
    prompt += f"""    ### Input:
    Query: '{query}'
-   
-   ### Output:
-   Return strictly as a JSON object:"""
+    """
         
    # Chiamata al modello LLM
    response = llm_70b.invoke([HumanMessage(content=prompt)])
@@ -400,6 +398,11 @@ def extract_keywords_youtube(state:AgentState):
        Output : {"keywords": "boiling water burn, first aid"}
     5. Query: "What to do in case of a sudden allergic reaction?"
        Output : {"keywords": "allergic reaction help, first aid"} 
+    
+    ### Output:
+    Return strictly as a JSON object in form of, in form:
+    {"keywords": "allergic reaction help, first aid"}
+
     """
 
    if previous_keywords:

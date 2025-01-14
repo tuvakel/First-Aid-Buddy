@@ -206,13 +206,13 @@ def triage_evaluation(state:TriageState):
     Hai abbastanza informazioni per valutare la gravità E la situazione medica descritta dall'utente **è in italiano**:.
     Output: {"Reasoning": "Sulla base delle informazioni che ho, il taglio non mi sembra grave dunque la gravità della situazione è piuttosto bassa", "Score" : "2"} 
 
-    #### Scenario 2.1 (italiano):
-    Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **è** in italiano**:.
-    Output: {"Reasoning": "Non ho ancora abbastanza informazioni per determinare la gravità della situazione. Mi occorre effettuare un'altra domanda.", "Question" : "Hai mai avuto reazioni allergiche nella tua vita?"} 
-
     ### Scenario 1.2 (inglese):
     Hai abbastanza informazioni per valutare la gravità E la situazione medica descritta dall'utente **NON è in italiano**:
     Output: {"Reasoning": "Based on the information I have, the cut does not seem serious, so the severity of the situation is quite low.", "Score" : "2"} 
+                             
+    #### Scenario 2.1 (italiano):
+    Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **è** in italiano**:.
+    Output: {"Reasoning": "Non ho ancora abbastanza informazioni per determinare la gravità della situazione. Mi occorre effettuare un'altra domanda.", "Question" : "Hai mai avuto reazioni allergiche nella tua vita?"} 
 
     ### Scenario 2.2 (inglese):
     Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **NON è in italiano**:
