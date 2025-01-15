@@ -1,6 +1,6 @@
 <div align="center">
 
-<br><img src="presentation/logo/circle.png" width="300" /><br>
+<br><img src="presentation/logo/circle.png" width="250" /><br>
 
 # **LLAMA First Aid: leveraging GenAI to provide contextual, step-by-step emergency medical assistance for immediate life-saving response**
 
