@@ -10,7 +10,7 @@ from streamlit_js_eval import get_geolocation
 import time
 
 
-st.set_page_config(page_title="llama-first-aid", page_icon="🦙")
+st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/circle.png")
 # Hash session ID using hashlib
 if 'session_id' not in st.session_state:
     session_id = hashlib.sha256(str(datetime.now()).encode()).hexdigest()
@@ -85,7 +85,7 @@ def main():
     
     get_sidebar(language)
 
-    st.title("LLAMA FIRST AID 🦙")
+    st.title("LLAMA FIRST AID")
 
     # User query input
     query = ""

@@ -8,6 +8,7 @@ img
 src/test.ipynb
 presentation/*
 !presentation/architecture.png
+!presentation/logo/
 !presentation/presentation.pdf
 !presentation/agents
 .DS_Store
