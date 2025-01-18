@@ -14,6 +14,76 @@ from gtts import gTTS
 import requests
 
 
+def get_latest_commit_hash(github_repo: str):
+    try:
+        response = requests.get(f"https://api.github.com/repos/{github_repo}/commits?per_page=1")
+        response.raise_for_status()
+        commits = response.json()
+        return commits[0]['sha']
+    except:
+        return None
+
+
+def get_previous_commit_hash(last_commit_file: str):
+    if os.path.exists(last_commit_file):
+        try:
+            with open(last_commit_file, 'r') as file:
+                return file.read().strip()
+        except:
+            return None
+    return None
+
+
+def save_commit_hash(commit_hash: str, last_commit_file: str):
+    commit_dir = os.path.dirname(last_commit_file)
+    if not os.path.exists(commit_dir):
+        os.makedirs(commit_dir)
+    try:
+        with open(last_commit_file, 'w') as file:
+            file.write(commit_hash)
+    except:
+        pass
+
+
+def get_current_version(version_file: str):
+    if os.path.exists(version_file):
+        try:
+            with open(version_file, 'r') as file:
+                return file.read().strip()
+        except:
+            return "v0.1.0"
+    return "v0.1.0"
+
+
+def increment_version(version):
+    try:
+        version_parts = version.lstrip('v').split('.')
+        major, minor, patch = map(int, version_parts)
+        patch += 1
+        new_version = f"v{major}.{minor}.{patch}"
+        return new_version
+    except:
+        return version
+
+
+def generate_app_id(github_repo: str, last_commit_file: str, version_file: str):
+    previous_commit_hash = get_previous_commit_hash(last_commit_file)
+    current_commit_hash = get_latest_commit_hash(github_repo)
+
+    current_version = get_current_version(version_file)
+
+    if current_commit_hash:
+        if previous_commit_hash != current_commit_hash:
+            new_version = increment_version(current_version)
+            save_commit_hash(current_commit_hash, last_commit_file)
+            with open(version_file, 'w') as file:
+                file.write(new_version)
+            return new_version
+        else:
+            return current_version if current_version != "Unknown" else "Unknown"
+    return "Unknown"
+
+
 def get_language(location):
     url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
     headers = {
@@ -205,7 +275,7 @@ def create_session_filename(session_id: str):
     return f"session_{session_id}.json"
 
 # 3. Write a new session data file to Google Cloud Storage (GCS)
-def write_session_to_gcs(session_id: str, user_location: list, query: str, response: str, bucket_name: str, session_filename: str, client: storage.Client):
+def write_session_to_gcs(session_id: str, app_version: str, user_location: list, severity: int, query: str, response: str, response_time: float, bucket_name: str, session_filename: str, client: storage.Client):
     bucket = client.get_bucket(bucket_name)
     blob = bucket.blob(session_filename)
 
@@ -222,9 +292,11 @@ def write_session_to_gcs(session_id: str, user_location: list, query: str, respo
         session_found = False
         for session in existing_data:
             if session['session_id'] == session_id:
-                # Append the new user_query and response to the existing session
+                # Append the new user_query and response, response times and updating severity for the existing session
+                session['severity'] = severity
                 session['queries'].append(query)
                 session['responses'].append(response)
+                session['response_times'].append(response_time)
                 session_found = True
                 break
         
@@ -232,10 +304,13 @@ def write_session_to_gcs(session_id: str, user_location: list, query: str, respo
             # If the session doesn't exist, create a new session entry
             new_session = {
                 "session_id": session_id,
+                "app_version": app_version,
                 "location": user_location,
                 "timestamp": datetime.now().isoformat(),
+                "severity": severity,
                 "queries": [query], 
-                "responses": [response] 
+                "responses": [response],
+                "response_times": [response_time] 
             }
             existing_data.append(new_session)
 

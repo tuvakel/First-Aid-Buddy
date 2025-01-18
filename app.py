@@ -3,7 +3,6 @@ from src.utils import *
 import tempfile
 import hashlib
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-#from src.crewai_utils import init_crew
 from src.triage_utils import create_triage_retriever, create_triage_agent, severity_to_color
 from src.emergency_utils import create_emergency_retriever, create_emergency_agent
 from streamlit_js_eval import get_geolocation
@@ -11,6 +10,15 @@ import time
 
 
 st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/circle.png")
+
+app_version = generate_app_id(
+    github_repo="Amatofrancesco99/llama-first-aid",
+    last_commit_file="data/app_version/last_commit.txt",
+    version_file="data/app_version/version.txt"
+)
+print(f"App version: {app_version}")
+
+
 # Hash session ID using hashlib
 if 'session_id' not in st.session_state:
     session_id = hashlib.sha256(str(datetime.now()).encode()).hexdigest()
@@ -63,17 +71,16 @@ def load_emergency_retriever(file_path, bm25_path, faiss_path):
 @st.cache_resource
 def load_triage_agent():
     return create_triage_agent()
+
 @st.cache_resource
 def load_emergency_agent():
     return create_emergency_agent()
 
-#documents = load_documents(_file_path=file_path)
+
 ensemble_retriever_triage = load_triage_retriever(file_path_triage, bm25_path="data/bm_25/bm25_triage_index.pkl", faiss_path="data/faiss/faiss_triage_index")
 ensemble_retriever_emergency = load_emergency_retriever(file_path_emergency, bm25_path="data/bm_25/bm25_emergency_index.pkl", faiss_path="data/faiss/faiss_emergency_index")
-#crew = init_crew()
 triage_agent = load_triage_agent()
 emergency_agent = load_emergency_agent()
-# llm_vision_model_name = "llama-3.2-11b-vision-preview"
 
 # GCS client to store session data
 gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"])
@@ -139,13 +146,13 @@ def main():
                     "ensemble_retriever_triage": ensemble_retriever_triage,
                     "questions" : []
                 }
-                #config = {"configurable": {"thread_id": "1"}}
+                start_time = time.time()
                 output = triage_agent.invoke(input)
+                end_time = time.time()
                 severity = output.get('severity', None)
                 severity = int(severity) if severity is not None else None
                 if severity:
                     color = severity_to_color[severity]
-                    # Mostra un pallino colorato
                     st.markdown(
                         (f"<span style='font-size: 16px;'>Emergency has <strong>severity {severity}</strong></span>" if language != "it"
                         else f"<span style='font-size: 16px;'>Al tuo codice è stato affidato <strong>codice {severity}</strong></span>"),
@@ -180,8 +187,9 @@ def main():
                         "youtube_api_key": YOUTUBE_API_KEY,
                         "google_maps_api_key": GOOGLE_MAPS_API_KEY
                     }
+                    start_time = time.time()
                     response, google_maps_link, hospital_name, youtube_link, video_title= emergency_agent.invoke(input)['final_result']
-                    #response = testo_to_utf8(response.raw)
+                    end_time = time.time()
 
                     # Initialize an empty string to store the full response as it is built
                     st.markdown(response, unsafe_allow_html=True)
@@ -196,20 +204,18 @@ def main():
                         st.markdown(f"## YouTube Video:" if language != "it" else f"## Video YouTube:")
                         st.markdown(f"### {video_title}:")
                     st.session_state.chat_history.extend([{"role": "assistant", "content": response}])
-            
-                    # Extract YouTube link from the response and embed it
-                    #youtube_link = extract_youtube_link(response)
 
                     if 'https' in youtube_link:
                         video_url = youtube_link.replace("watch?v=", "embed/")
                         youtube_embed = f'<iframe width="560" height="315" src="{video_url}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
                         st.markdown(f"<br>{youtube_embed}", unsafe_allow_html=True)
                 st.session_state.chat_history.extend([AIMessage(content=str(response))])
-            
+        
         # # Save session data to GCS
+        # response_time = end_time - start_time
         # bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
         # session_filename = create_session_filename(session_id)
-        # write_session_to_gcs(session_id, user_location, query, response, bucket_name, session_filename, gcs_client)
+        # write_session_to_gcs(session_id, app_version, user_location, severity, query, response, response_time, bucket_name, session_filename, gcs_client)
 
 
 if __name__ == "__main__":
