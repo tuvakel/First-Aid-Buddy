@@ -87,7 +87,7 @@ def generate_app_id(github_repo: str, last_commit_file: str, version_file: str):
 def get_language(location):
     url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
     headers = {
-        'User-Agent': 'LLamaFirstAid/1.0'
+        'User-Agent': 'LLamaFirstAid/0.1'
     }
     response = requests.get(url, headers=headers)
 
