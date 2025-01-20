@@ -9,7 +9,7 @@ from streamlit_js_eval import get_geolocation
 import time
 
 
-st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/logo.png")
+st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/old/circle.png", layout="wide", initial_sidebar_state="expanded")
 
 app_version = generate_app_id(
     github_repo="Amatofrancesco99/llama-first-aid",
@@ -101,6 +101,7 @@ def main():
 
     query = st.chat_input("Describe your issue or emergency" if language != "it" 
                          else "Descrivi il problema o la situazione di emergenza")
+    
     audio_value = st.audio_input("Speak with your assistant (optional)" if language != "it" else "Parla col tuo assistente (opzionale)")
 
     #if allow_images:
@@ -116,10 +117,13 @@ def main():
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
                 temp_audio_path = save_uploaded_audio(audio_value.getvalue(), temp_audio_file.name)
             query = transcribe_audio(llm, llm_audio_model_name, temp_audio_path, trscb_message, language)
-            
+        
+        translated_query, src_lang = translate(llm, llm_text_model_name, query, 'en')
+
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = [HumanMessage(content=query)]
-    
+            st.session_state.chat_history_translated = [HumanMessage(content=translated_query)]
+
             if image_base64:
                 st.session_state.chat_history.append({
                     "role": "user",
@@ -127,6 +131,7 @@ def main():
                 })
         else:
             st.session_state.chat_history.append(HumanMessage(content=query))
+            st.session_state.chat_history_translated.append([HumanMessage(content=translated_query)])
 
         # Mostra la cronologia della conversazione
         for message in st.session_state.chat_history:
@@ -142,7 +147,7 @@ def main():
             # Call the LLM with the Jinja prompt and DataFrame context
             with st.chat_message("assistant"):
                 input = {
-                    "messages": st.session_state.chat_history,
+                    "messages": st.session_state.chat_history_translated,
                     "ensemble_retriever_triage": ensemble_retriever_triage,
                     "questions" : []
                 }
@@ -162,7 +167,7 @@ def main():
                     response = severity
                     query = output['full_query']
                 else:
-                    response = output['questions'][-1].content
+                    response = output['questions'][-1].content      
                     st.markdown(response, unsafe_allow_html=True)    
                 st.session_state.chat_history.extend([AIMessage(content=str(response))])
 
