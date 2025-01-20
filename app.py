@@ -9,7 +9,7 @@ from streamlit_js_eval import get_geolocation
 import time
 
 
-st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/old/circle.png", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/logo.png", layout="wide", initial_sidebar_state="expanded")
 
 app_version = generate_app_id(
     github_repo="Amatofrancesco99/llama-first-aid",
