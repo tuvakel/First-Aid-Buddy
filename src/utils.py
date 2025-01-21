@@ -85,24 +85,27 @@ def generate_app_id(github_repo: str, last_commit_file: str, version_file: str):
 
 
 def get_language(location):
-    url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
-    headers = {
-        'User-Agent': 'LLamaFirstAid/0.1'
-    }
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        country = data.get('address', {}).get('country', None)
-        detailed_location = data.get('address', {}).get('county', None) \
-            + ', ' + data.get('address', {}).get('state', None)  \
-            + ', ' + data.get('address', {}).get('country', None)
-        if country.lower() == 'italia':
-            return 'it', detailed_location
-        else: return 'en', detailed_location
-    else:
-        print(f"Error getting language from location") 
+    if location == (None, None):
         return 'en', 'Disabled'
+    else:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
+        headers = {
+            'User-Agent': 'LLamaFirstAid/0.1'
+        }
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+            country = data.get('address', {}).get('country', None)
+            detailed_location = data.get('address', {}).get('county', None) \
+                + ', ' + data.get('address', {}).get('state', None)  \
+                + ', ' + data.get('address', {}).get('country', None)
+            if country.lower() == 'italia':
+                return 'it', detailed_location
+            else: return 'en', detailed_location
+        else:
+            print(f"Error getting language from location") 
+            return 'en', 'Disabled'
 
 
 def get_sidebar(language):
