@@ -27,7 +27,7 @@ from langchain.schema import Document
 import io
 
 
-llm_70b = ChatGroq(model="llama-3.1-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
+llm_70b = ChatGroq(model="llama3-70b-8192", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
 
@@ -432,7 +432,7 @@ def should_find_hospital(state:AgentState):
 def create_response_from_web_search(state:AgentState):
     web_info = state.get('web_info', '')
     query = state.get('full_query', '')
-    prompt = f"""Using the following context: {web_info}, provide a detailed and comprehensive response to the user query: "{query}". Focus on offering practical and actionable support for someone already facing the issue. Avoid mentioning precautions unless explicitly relevant to resolving the problem. Ensure your answer is clear, accurate, and concise, and limit it in a range of 400-800 words."""
+    prompt = f"""Using the following context: {web_info}, provide a detailed and comprehensive response to the user query: "{query}". Focus on offering practical and actionable support for someone already facing the issue. Avoid mentioning precautions unless explicitly relevant to resolving the problem. Ensure your answer is clear, accurate, and concise, and limit it in a range of 400-1000 words."""
     response = llm_70b.invoke([HumanMessage(content=prompt)])
     return {"web_answer" : response.content}
 

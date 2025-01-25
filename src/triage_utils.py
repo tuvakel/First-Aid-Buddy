@@ -19,7 +19,7 @@ import json
 #memory = MemorySaver()
 import pickle
 
-llm_70b = ChatGroq(model="llama-3.1-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
+llm_70b = ChatGroq(model="llama3-70b-8192", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
 def process_pages(pages:List[Document]):
