@@ -19,7 +19,7 @@ import json
 #memory = MemorySaver()
 import pickle
 
-llm_70b = ChatGroq(model="llama3-70b-8192", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
+llm_70b = ChatGroq(model="llama-3.3-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
 def process_pages(pages:List[Document]):
@@ -167,11 +167,11 @@ def triage_evaluation(state:TriageState):
     full_query = llm_70b.invoke(contextualize_q_system_prompt).content
 
     print(f"full_query: {full_query}")
-    ensemble_retriever_triage = state['ensemble_retriever_triage']
-    retrieved_docs = ensemble_retriever_triage.invoke(full_query)
-    print(f"len_retrieved_docs: {len(retrieved_docs)}")
-    retrieved_info = [doc.page_content for doc in retrieved_docs]
-    full_retrieved_info = " ".join([message for message in retrieved_info[:2]])
+    #ensemble_retriever_triage = state['ensemble_retriever_triage']
+    #retrieved_docs = ensemble_retriever_triage.invoke(full_query)
+    #print(f"len_retrieved_docs: {len(retrieved_docs)}")
+    #retrieved_info = [doc.page_content for doc in retrieved_docs]
+    #full_retrieved_info = " ".join([message for message in retrieved_info[:2]])
     system_prompt = Template("""Sei un professionista altamente esperto in medicina d'urgenza, specializzato in Triage. Il tuo compito è valutare la gravità della situazione dell'utente fornendo un punteggio da 1 a 5 oppure chiedere una domanda concisa per ottenere ulteriori informazioni, se necessario.
 
     ### Istruzioni:
@@ -225,7 +225,7 @@ def triage_evaluation(state:TriageState):
     {{full_query}}
     
     """)
-    system_prompt = system_prompt.render(full_retrieved_info=full_retrieved_info, full_query=full_query)
+    system_prompt = system_prompt.render(full_retrieved_info=None, full_query=full_query)
     updated_prompt = [HumanMessage(system_prompt)]
     #print(f"updated_prompt: {updated_prompt}")
     start_time = time.time()

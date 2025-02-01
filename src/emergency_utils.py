@@ -27,7 +27,7 @@ from langchain.schema import Document
 import io
 
 
-llm_70b = ChatGroq(model="llama3-70b-8192", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
+llm_70b = ChatGroq(model="llama-3.3-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
 
@@ -253,9 +253,9 @@ def answer_from_rag(state:AgentState):
     # full_query = llm_8b.invoke(contextualize_q_system_prompt).content
     full_query = state['full_query']
     ensemble_retriever = state['ensemble_retriever']
-    retrieved_docs = ensemble_retriever.invoke(full_query)
-    retrieved_info = [doc.page_content for doc in retrieved_docs[:2]]
-    prompt = state['prompt'].render(full_query=full_query, retrieved_info=retrieved_info)
+    #retrieved_docs = ensemble_retriever.invoke(full_query)
+    #retrieved_info = [doc.page_content for doc in retrieved_docs[:2]]
+    prompt = state['prompt'].render(full_query=full_query, retrieved_info=None)
     response = llm_70b.invoke([HumanMessage(content=prompt)]).content.strip()
     print(f"response: {response}")
     return {"rag_answer" : response, "full_query" : full_query}
@@ -347,11 +347,15 @@ def extract_keywords_web_search(state:AgentState):
     
    prompt += f"""    ### Input:
    Query: '{query}'
+
+    Return the data strictly as a JSON object, with the following structure:
+    {
+        "keywords": "allergic reaction help, first aid"
+    }
     """
         
    # Chiamata al modello LLM
    response = llm_70b.invoke([HumanMessage(content=prompt)])
-   #print(f'web_search_keywords: {response.content}')
    return {"web_search_keywords": json.loads(response.content)["keywords"], "retry_count_web_search" : state["retry_count_web_search"]+1}
 
 
