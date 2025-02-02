@@ -44,13 +44,7 @@ The acronym **LLAMA** in our app stands for a **Live Assistant for Medical Assis
 - **Dual Input (Text and Audio)**: Users can interact with the assistant through **text** or **audio**, providing flexibility to respond faster in critical situations. The audio input also helps to ease communication in high-stress scenarios where typing might not be possible.
 - **Location-Based Assistance**: The app utilizes the user’s geographical location to suggest nearby hospitals or emergency services, making it easier for the user to act quickly. Depending on the severity of the situation, LLAMA will suggest whether it’s better to contact emergency services or go to the hospital directly. This ensures the user can make an informed decision, optimizing the response time and care.
 - **Video Embedding in Web App**: All tutorial videos are directly embedded within the app, ensuring smooth access and no need for external platforms. This guarantees that users can access life-saving video demonstrations instantly without distractions or delays.
-- **Saving All Interactions in History**: For each session, **LLAMA First Aid** automatically saves the following data in a **history JSON file**:
-    - **session ID**: Unique identifier for each user session.
-    - **location**: Geographical location of the user.
-    - **timestamp**: The exact time when the session was initiated.
-    - **user queries and responses**: A set of all questions and answers exchanged between the user and the assistant during the session.
-  
-    This data ensures that all interactions are tracked and can be reviewed later, helping improve accuracy and offering insight into previous guidance.
+- **Saving All Interactions in History**: For each session, **LLAMA First Aid** automatically saves the following data in a **GCP bucket**. The data is anonimized and is used solely for the purposes of generating dashboards, evaluating the performance of the LLM, and supporting other features. It ensures that all interactions are tracked and can be reviewed later, helping improve accuracy and offering insight into previous guidance. The data is used exclusively for system improvement, performance monitoring, and tracking over time.
 
 ---
 
@@ -90,13 +84,24 @@ Based on the user's **location**, LLAMA evaluates the severity of the situation 
 
 - **Dual Input (Text and Audio) for Speed and Efficiency**: At the moment, LLAMA First Aid allows users to interact with the assistant through two input modes: **text** and **audio**. This dual input capability ensures that users can respond quickly and effectively during high-pressure emergencies—whether typing their query or speaking directly into the app. This flexibility speeds up the process and makes the app more efficient for users in stressful situations.
 
-- **Saving All Interactions in History**: For each session, **LLAMA First Aid** automatically saves the following data in a **history JSON file**:
-    - **session ID**: Unique identifier for each user session.
-    - **location**: Geographical location of the user.
+- **Saving All Interactions in History**: For each session, **LLAMA First Aid** automatically saves the following data in a **history JSON file** (GCP bucket):
+    - **session_id**: Unique identifier for each user session.
+    - **app_version**: The version of the LLAMA First Aid app being used.
+    - **location**: The geographical location of the user.
     - **timestamp**: The exact time when the session was initiated.
-    - **user queries and responses**: A set of all questions and answers exchanged between the user and the assistant during the session.
+    - **medical_class**: The category or type of medical issue (e.g., injury, illness).
+    - **severity**: The severity level of the medical issue (e.g., low, high).
+    - **hospital**: Information about the nearest hospital.
+        - **name**: The name of the hospital.
+        - **gmaps_link**: A Google Maps link to the hospital’s location.
+    - **youtube_video**: Links to relevant YouTube videos for further assistance.
+        - **title**: The title of the video.
+        - **link**: The URL to the video.
+    - **queries**: A list of all user queries during the session.
+    - **responses**: A list of all assistant responses during the session.
+    - **response_times**: A list of time intervals for each response.
 
-    This data ensures that all interactions are tracked and can be reviewed later, helping improve accuracy and offering insight into previous guidance.
+    This data is used for generating dashboards, evaluating the performance of the LLM, and supporting other features. It ensures that all interactions are tracked and can be reviewed later, helping improve accuracy and offering insight into previous guidance.
 
 ---
 
