@@ -11,6 +11,9 @@ import time
 
 st.set_page_config(page_title="llama-first-aid", page_icon="presentation/logo/logo.png", layout="wide", initial_sidebar_state="expanded")
 
+STORE_SESSIONS_DATA_LOCALLY = False
+STORE_SESSIONS_DATA_GCS = False
+
 app_version = generate_app_id(
     github_repo="Amatofrancesco99/llama-first-aid",
     last_commit_file="data/app_version/last_commit.txt",
@@ -82,9 +85,6 @@ ensemble_retriever_emergency = load_emergency_retriever(file_path_emergency, bm2
 triage_agent = load_triage_agent()
 emergency_agent = load_emergency_agent()
 
-# GCS client to store session data
-gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"])
-
 
 # Main function
 def main():
@@ -101,14 +101,19 @@ def main():
 
     query = st.chat_input("Describe your issue or emergency" if language != "it" 
                          else "Descrivi il problema o la situazione di emergenza")
-    audio_value = st.audio_input("Speak with your assistant (optional)" if language != "it" else "Parla col tuo assistente (opzionale)")
-
     #if allow_images:
     #    captured_image = st.file_uploader("Carica un'immagine (opzionale)", type=["jpg", "jpeg", "png"])
     #    if captured_image:
     #        image_base64 = convert_image_to_base64(captured_image, resize=50)
+    audio_value = st.audio_input("Speak with your assistant (optional)" if language != "it" else "Parla col tuo assistente (opzionale)")
+
+    # Default parameters values
+    severity, hospital_name, google_maps_link, video_title, youtube_link = None, None, None, None, None
 
     if (query or (query and image_base64)) or (audio_value or (audio_value and image_base64)):
+
+        translated_query, source_language = translate(llm=llm, llm_model_name=llm_text_model_name, message=query, target_language="English")
+
         trscb_message_template = load_template("src/templates/trscb_message_template.jinja")
         trscb_message = trscb_message_template.render()
         
@@ -119,7 +124,8 @@ def main():
             
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = [HumanMessage(content=query)]
-    
+            st.session_state.chat_history_translated = [HumanMessage(content=translated_query)]
+
             if image_base64:
                 st.session_state.chat_history.append({
                     "role": "user",
@@ -127,6 +133,7 @@ def main():
                 })
         else:
             st.session_state.chat_history.append(HumanMessage(content=query))
+            st.session_state.chat_history_translated.append(HumanMessage(content=translated_query))
 
         # Mostra la cronologia della conversazione
         for message in st.session_state.chat_history:
@@ -142,7 +149,7 @@ def main():
             # Call the LLM with the Jinja prompt and DataFrame context
             with st.chat_message("assistant"):
                 input = {
-                    "messages": st.session_state.chat_history,
+                    "messages": st.session_state.chat_history_translated,
                     "ensemble_retriever_triage": ensemble_retriever_triage,
                     "questions" : []
                 }
@@ -160,9 +167,10 @@ def main():
                         unsafe_allow_html=True
                     )
                     response = severity
-                    query = output['full_query']
+                    triage_agent_output = output['full_query']
                 else:
                     response = output['questions'][-1].content
+                    response, _ = translate(llm=llm, llm_model_name=llm_text_model_name, message=response, target_language=source_language)
                     st.markdown(response, unsafe_allow_html=True)    
                 st.session_state.chat_history.extend([AIMessage(content=str(response))])
 
@@ -176,7 +184,7 @@ def main():
                 # Call the LLM with the Jinja prompt and DataFrame context
                 with st.chat_message("assistant"):
                     input = {
-                        "full_query": query,
+                        "full_query": triage_agent_output,
                         "prompt": prompt_emergency if severity>2 else prompt_everyday,
                         "severity" : severity,
                         "history" : st.session_state.chat_history[:-1],
@@ -188,13 +196,14 @@ def main():
                         "google_maps_api_key": GOOGLE_MAPS_API_KEY
                     }
                     start_time = time.time()
-                    response, google_maps_link, hospital_name, youtube_link, video_title= emergency_agent.invoke(input)['final_result']
+                    response, google_maps_link, hospital_name, youtube_link, video_title = emergency_agent.invoke(input)['final_result']
                     end_time = time.time()
 
                     # Initialize an empty string to store the full response as it is built
-                    st.markdown(response, unsafe_allow_html=True)
+                    response, _ = translate(llm=llm, llm_model_name=llm_text_model_name, message=response, target_language=source_language)
+                    st.markdown(response.replace("\\n", "\n"), unsafe_allow_html=True)
 
-                    if severity >2:
+                    if severity > 2:
                         # Mostra il link di Google Maps
                         st.markdown(f"### Nearest hospital: **{hospital_name}**" if language != "it" else f"### Ospedale più vicino: **{hospital_name}**")
                         st.markdown(f"[Google Maps]({google_maps_link})")
@@ -211,11 +220,26 @@ def main():
                         st.markdown(f"<br>{youtube_embed}", unsafe_allow_html=True)
                 st.session_state.chat_history.extend([AIMessage(content=str(response))])
         
-        # # Save session data to GCS
-        # response_time = end_time - start_time
-        # bucket_name = st.secrets["GCP"]["BUCKET_NAME"]
-        # session_filename = create_session_filename(session_id)
-        # write_session_to_gcs(session_id, app_version, user_location, severity, query, response, response_time, bucket_name, session_filename, gcs_client)
+
+        # Save session data either locally or to GCS, if enabled
+        if STORE_SESSIONS_DATA_LOCALLY or STORE_SESSIONS_DATA_GCS:
+            response_time = end_time - start_time
+            session_filename = create_session_filename(session_id)
+            local_path_name = "data/sessions_history" if STORE_SESSIONS_DATA_LOCALLY else None
+            bucket_name = st.secrets["GCP"]["BUCKET_NAME"] if STORE_SESSIONS_DATA_GCS else None
+            gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"]) if STORE_SESSIONS_DATA_GCS else None
+            store_session_data(
+                session_id=session_id, app_version=app_version,
+                user_location=user_location, 
+                medical_class=get_medical_class(llm=llm, llm_model_name=llm_text_model_name, chat_history=st.session_state.chat_history), 
+                severity=severity,
+                hospital_details=[hospital_name, google_maps_link],
+                youtube_video_details=[video_title, youtube_link],
+                query=query, response=response, response_time=response_time,
+                session_filename=session_filename,
+                local_path_name=local_path_name,
+                bucket_name=bucket_name, client=gcs_client
+            )
 
 
 if __name__ == "__main__":

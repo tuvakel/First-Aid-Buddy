@@ -41,6 +41,7 @@ def get_user_location():
     location = geocoder.ip('me')
     return location.latlng if location.latlng else (None, None)
 
+
 def process_pdf_emergency(file_path):
     """
     Carica e processa un file PDF per estrarre il contenuto delle pagine desiderate.
@@ -146,6 +147,7 @@ def process_pdf_emergency(file_path):
     ]
     return documents
 
+
 def create_bm25_retriever_emergency(pdf_file_path, bm25_index_path):
     """
     Crea o carica un retriever BM25.
@@ -176,6 +178,7 @@ def create_bm25_retriever_emergency(pdf_file_path, bm25_index_path):
     
     return bm25_retriever, documents
 
+
 def create_emergency_retriever(pdf_file_path,  bm25_index_path, faiss_path):
     # Step 1: Configura l'indice BM25 per i titoli
     bm25_retriever, documents = create_bm25_retriever_emergency(pdf_file_path, bm25_index_path)
@@ -200,6 +203,7 @@ def create_emergency_retriever(pdf_file_path,  bm25_index_path, faiss_path):
         similarity_retriever
     ], weights=[0.3, 0.7])
     return ensemble_retriever
+
 
 class AgentState(TypedDict):
     query: str
@@ -229,28 +233,9 @@ class AgentState(TypedDict):
 
     final_result: List[str]
 
+
 def answer_from_rag(state:AgentState):
     log_state("answer_from_rag", state)
-    # messages = state['messages']
-    # contextualize_q_system_prompt = f"""You are an AI assistant specialized in medical triage. Your task is to analyze the conversation history between the user and the AI, understand the user's current medical concerns, and summarize the key information. Do NOT answer the question, just reformulate it if needed and otherwise return it as is.
-
-    # ### Instructions:
-    # 1. **Triage Context**:
-    # - Review the conversation history to understand the user's medical concerns and symptoms.
-
-    # 2. **Focus on Current Query**:
-    # - Pay special attention to the user's latest messages to ensure the summary reflects their current problem or question.
-
-    # 3. **Be Concise and Relevant**:
-    # - Provide a clear and concise summary (1-3 sentences) of the user's current medical concern.
-    # - Highlight the symptoms and context provided by the user that are essential for triage.
-
-    # ### Input:
-    # Conversation History:
-    # {messages}
-
-    # ### Output:"""
-    # full_query = llm_8b.invoke(contextualize_q_system_prompt).content
     full_query = state['full_query']
     ensemble_retriever = state['ensemble_retriever']
     #retrieved_docs = ensemble_retriever.invoke(full_query)
@@ -264,12 +249,13 @@ def answer_from_rag(state:AgentState):
 def log_state(node_name, state:AgentState):
     print(f"Node '{node_name}' State: {state}")
 
+
 def web_search(state: AgentState) -> str:
     """
     Searches the Internet to retrieve reliable and certified information related to a specific medical query.
 
     Args:
-        query (str): A simplified Italian string, optimized for an effective Google search based on the user's query.
+        query (str): A simplified string, optimized for an effective Google search based on the user's query.
 
     Returns:
         str: A string containing useful and relevant information retrieved from certified websites related to the user's query. 
@@ -280,7 +266,7 @@ def web_search(state: AgentState) -> str:
     query = state['web_search_keywords']
     if not isinstance(query, str):
         return "Nessun contenuto pertinente trovato su Internet"
-    compliant_links = ['my-personaltrainer', 'msdmanuals']
+    compliant_links = ['webmd', 'mayoclinic']
     serper = GoogleSerperAPIWrapper(api_key=os.environ["SERPER_API_KEY"])
     try:
         search_results = serper.results(query)['organic']
@@ -314,6 +300,7 @@ def web_search(state: AgentState) -> str:
     except:
         return {"web_info" : "NO Info"}
     
+
 def extract_keywords_web_search(state:AgentState):
    log_state("extract_keywords_web_search", state)
    query = state['full_query']
@@ -326,21 +313,26 @@ def extract_keywords_web_search(state:AgentState):
     - Type of injury or symptom (e.g., "cut," "burn," "panic attack").
     - Cause of the issue, if specified (e.g., "knife," "hot water," "bee sting").
     3. **Omit redundant or irrelevant details:** Ignore unnecessary context, such as who the injury happened to or extraneous background information.
-    4. **Translate into Italian:** Ensure the extracted keywords are translated into Italian, regardless of the query's original language.
-    5. **Output format:** Return the result strictly as a JSON object with the key 'keywords' containing the extracted keywords. **Do not include any other text outside the JSON object.**""" + \
+    4. **Output format:** Return the result strictly as a JSON object with the key 'keywords' containing the extracted keywords. **Do not include any other text outside the JSON object.**""" + \
     """
-    1. Query: "I am feeling anxious, I think I am having a panic attack. What should I do?" 
-       Output : {"keywords": "attacco di panico, primo soccorso"}
-    2. Query: "Cosa devo fare se mi punge un'ape?"
-       Output : {"keywords": "Puntura ape, primo soccorso"}
-    3. Query: "Come medicare un taglio profondo fatto con un coltello?"
-       Output : {"keywords": "Taglio profondo coltello, primo soccorso"}
-    4. Query: "Come trattare una scottatura con acqua bollente?"
-       Output : {"keywords": "Scottatura acqua bollente, primo soccorso"}
-    5. Query: "Cosa fare in caso di reazione allergica improvvisa?"
-       Output : {"keywords": "Reazione allergica, primo soccorso"}
-    6. Query: "Un mio amico sta avendo un attacco di panico"
-       Output : {"keywords": "Attacco di panico, primo soccorso"} """
+    1. Query: "I am feeling anxious, I think I am having a panic attack. What should I do?"  
+   Output : {"keywords": "panic attack, first aid"}
+
+    2. Query: "What should I do if I get stung by a bee?"  
+    Output : {"keywords": "bee sting, first aid"}
+
+    3. Query: "How do I treat a deep cut from a knife?"  
+    Output : {"keywords": "deep cut knife, first aid"}
+
+    4. Query: "How do I treat a burn from boiling water?"  
+    Output : {"keywords": "boiling water burn, first aid"}
+
+    5. Query: "What should I do in case of a sudden allergic reaction?"  
+    Output : {"keywords": "allergic reaction, first aid"}
+
+    6. Query: "A friend of mine is having a panic attack"  
+    Output : {"keywords": "panic attack, first aid"}
+    """
 
    if previous_keywords:
         prompt += f" Previous search with keywords '{previous_keywords}' returned no results. Try a different search query."
@@ -357,7 +349,6 @@ def extract_keywords_web_search(state:AgentState):
    # Chiamata al modello LLM
    response = llm_70b.invoke([HumanMessage(content=prompt)])
    return {"web_search_keywords": json.loads(response.content)["keywords"], "retry_count_web_search" : state["retry_count_web_search"]+1}
-
 
 
 # Funzione per controllare se continuare
@@ -386,7 +377,6 @@ def extract_keywords_youtube(state:AgentState):
    previous_keywords = state.get('keywords_youtube', '')
     # Costruisci il prompt
    prompt = f"""From the following user medical situation: '{query}', extract the most relevant keywords to optimize the search for a video on YouTube. 
-    You **MUST** translate the user medical situation into English, just to find keywords.
     Return just a Json object with the key: 'keywords'
     Here are examples of user queries and the corresponding optimized output:""" + \
     """
@@ -417,7 +407,6 @@ def extract_keywords_youtube(state:AgentState):
    return {"keywords_youtube": json.loads(response.content)["keywords"], "retry_count_youtube" : state["retry_count_youtube"]+1}
 
 
-
 # Funzione per controllare se continuare
 def should_continue_youtube(state:AgentState):
     search_results = state.get('search_results', '')
@@ -426,12 +415,14 @@ def should_continue_youtube(state:AgentState):
         return "retry"
     return "end"
 
+
 # Funzione per controllare se continuare
 def should_find_hospital(state:AgentState):
     severity = state.get('severity')
     if severity>2:
         return "high_severity"
     return "low_severity"
+
 
 def create_response_from_web_search(state:AgentState):
     web_info = state.get('web_info', '')
@@ -468,8 +459,7 @@ def search_youtube_videos(state:AgentState) -> str:
     1. Assume the described situation pertains to a medical issue involving a person unless explicitly stated otherwise.
     2. Focus only on the **relevance** of the video to the medical situation described.
     3. Base your decision solely on the details provided in the medical situation and the video title.
-    4. Ignore language differences between the medical situation and video title.
-    5. Respond with **"YES"** or **"NO"** only. Do not provide any explanations.
+    4. Respond with **"YES"** or **"NO"** only. Do not provide any explanations.
 
     ### Input Format:
     - Medical Situation: [Description of the patient's medical situation]
@@ -479,21 +469,21 @@ def search_youtube_videos(state:AgentState) -> str:
     - "YES" or "NO"
 
     ### Examples:
-    - Medical Situation: "Il paziente è stato punto da un'ape e non ha mai avuto reazioni allergiche né sintomi come gonfiore, prurito o difficoltà respiratorie dopo essere stato punto da un insetto in passato."  
-    Video Title: "First Aid for Bee Stings"  
-    Output: "YES"
+    - Medical Situation: "The patient was stung by a bee and has never had allergic reactions or symptoms such as swelling, itching, or difficulty breathing after being stung by an insect in the past."
+      Video Title: "First Aid for Bee Stings"
+      Output: "YES"
 
-    - Medical Situation: "Il paziente è stato punto da un'ape, ma soffre di allergie stagionali gravi."  
-    Video Title: "How to Treat Seasonal Allergies"  
-    Output: "NO"
+    - Medical Situation: "The patient was stung by a bee, but suffers from severe seasonal allergies."
+      Video Title: "How to Treat Seasonal Allergies"
+      Output: "NO"
 
-    - Medical Situation: "The patient accidentally cut their hand with a knife and is experiencing minor bleeding."  
-    Video Title: "Emergency Care for Cuts"  
-    Output: "YES"
+    - Medical Situation: "The patient accidentally cut their hand with a knife and is experiencing minor bleeding."
+      Video Title: "Emergency Care for Cuts"
+      Output: "YES"
 
-    - Medical Situation: "Una persona sta avendo un infarto."  
-    Video Title: "First Aid - Heart Attack"  
-    Output: "YES"
+    - Medical Situation: "A person is having a heart attack."
+      Video Title: "First Aid - Heart Attack"
+      Output: "YES"
 
     ### Now process the following input:
     Medical Situation: {query}  
@@ -525,6 +515,7 @@ def search_youtube_videos(state:AgentState) -> str:
     except requests.exceptions.RequestException as e:
         return {"search_results": f"Error during YouTube search: {str(e)}", "video_title": None}
     return {"search_results": "No relevant videos found for the given query on the allowed channels.", "video_title": None}
+
 
 def get_google_maps_url(state:AgentState):
     """
@@ -570,6 +561,7 @@ def get_google_maps_url(state:AgentState):
     except requests.exceptions.RequestException as e:
         return {"google_maps_url": f"Request failed: {str(e)}"}
     
+
 def start_emergency_bot(state:AgentState):
     # Nodo di coordinamento iniziale, ritorna lo stato invariato
     return state
@@ -619,13 +611,10 @@ def create_emergency_agent():
     # Secondo agente (Location)
     graph.add_node("get_google_maps_url", get_google_maps_url)
 
-
-
     # Terzo agente (Combinazione risultati)
     graph.add_node("combine_results", combine_results)
 
     # Integrazione flussi paralleli
-    # graph.add_edge("search_youtube_videos", "combine_results")
     graph.add_edge("get_google_maps_url", "combine_results")
     graph.add_conditional_edges(
         "answer_from_rag",

@@ -13,3 +13,4 @@ presentation/*
 !presentation/agents
 .DS_Store
 notebooks/*
+data/sessions_history/

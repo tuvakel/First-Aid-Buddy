@@ -31,6 +31,7 @@ def process_pages(pages:List[Document]):
         doc.page_content = re.sub(r'^\d+\s*\n\s*\n', '', doc.page_content)
     return pages
 
+
 def process_pdf_triage(file_path:str):
     print('process_pdf_triage')
     # Carica le pagine del PDF
@@ -108,7 +109,6 @@ def create_triage_retriever(pdf_file_path:str, bm25_index_path:str, faiss_path:s
     return ensemble_retriever
 
 
-
 severity_to_color = {
     1: "#00FF00",  # Verde
     2: "#ADFF2F",  # Giallo-verde
@@ -125,12 +125,15 @@ class TriageState(TypedDict):
     messages: Annotated[list, add_messages]
     full_query : str
 
+
 def start_emergency_bot(state:TriageState):
     # Nodo di coordinamento iniziale, ritorna lo stato invariato
     return state
 
+
 def log_state(node_name, state:TriageState):
     print(f"Node '{node_name}' State: {state}")
+
 
 def extract_json_from_response(response_text: str) -> dict:
     cleaned_resp = response_text.strip()
@@ -141,7 +144,8 @@ def extract_json_from_response(response_text: str) -> dict:
         return json.loads(cleaned_resp)
     except json.JSONDecodeError as e:
         raise ValueError(f"JSON decoding error: {e}. Response received: {response_text}")
-    
+
+
 def triage_evaluation(state:TriageState):
     messages = state['messages']
 
@@ -172,62 +176,52 @@ def triage_evaluation(state:TriageState):
     #print(f"len_retrieved_docs: {len(retrieved_docs)}")
     #retrieved_info = [doc.page_content for doc in retrieved_docs]
     #full_retrieved_info = " ".join([message for message in retrieved_info[:2]])
-    system_prompt = Template("""Sei un professionista altamente esperto in medicina d'urgenza, specializzato in Triage. Il tuo compito è valutare la gravità della situazione dell'utente fornendo un punteggio da 1 a 5 oppure chiedere una domanda concisa per ottenere ulteriori informazioni, se necessario.
+    system_prompt = Template("""
+    You are a highly skilled professional in emergency medicine, specializing in Triage. Your task is to assess the severity of the user's situation by providing a score from 1 to 5, or ask a concise question to obtain further information if necessary.
 
-    ### Istruzioni:
-    1. **Valutazione della gravità**:
-        - Analizza la situazione dell'utente per determinarne la gravità utilizzando le informazioni fornite nei documenti.
-        - Il punteggio è definito come:
-        - `1`: Situazione di minima gravità, nessun pericolo immediato.
-        - `5`: Emergenza critica e potenzialmente letale, richiede intervento immediato.
+    ### Instructions:
+    1. **Severity Assessment**:
+        - Analyze the user's situation to determine its severity using the information provided in the documents.
+        - The score is defined as:
+        - `1`: Minimal severity, no immediate danger.
+        - `5`: Critical and potentially life-threatening emergency, requires immediate intervention.
 
-    2. **Richiesta di ulteriori informazioni**:
-        - Se le informazioni disponibili non sono sufficienti, chiedi una domanda diretta e specifica per ottenere chiarimenti.
+    2. **Request for Further Information**:
+        - If the available information is not sufficient, ask a direct and specific question to clarify.
 
-    3. **Formato della risposta**:
-    - La risposta deve essere un JSON con uno dei seguenti formati:
-     - **Se hai abbastanza informazioni**:
+    3. **Response Format**:
+    - The response must be a JSON with one of the following formats:
+     - **If you have enough information**:
        {
-         "Reasoning": "Spiega brevemente la tua valutazione.",
-         "Score": "Punteggio tra 1 e 5"
+         "Reasoning": "Briefly explain your assessment.",
+         "Score": "Score between 1 and 5"
        }
-     - **Se hai bisogno di ulteriori informazioni**:
+     - **If you need further information**:
        {
-         "Reasoning": "Spiega perché sono necessarie più informazioni.",
-         "Question": "Domanda diretta e specifica."
+         "Reasoning": "Explain why more information is needed.",
+         "Question": "Direct and specific question."
        }
 
-    4. **Traduzione**:
-      - Se la situazione medica dell'utente non è in italiano, traduci il testo nei campi "Reasoning" e "Question" in inglese. Altrimenti, mantieni tutto in italiano.
+    You must return the output in the specified format, without adding backticks and json string in response.                         
+    
+    ### Example Outputs:
+    #### Scenario 1:
+    You have enough information to assess the severity.
+    Output: {"Reasoning": "Based on the information I have, the cut doesn't seem severe, so the severity of the situation is relatively low.", "Score" : "2"} 
 
-                                                     
-    ### Esempi di output:
-    #### Scenario 1.1 (italiano):
-    Hai abbastanza informazioni per valutare la gravità E la situazione medica descritta dall'utente **è in italiano**:.
-    Output: {"Reasoning": "Sulla base delle informazioni che ho, il taglio non mi sembra grave dunque la gravità della situazione è piuttosto bassa", "Score" : "2"} 
+    #### Scenario 2:
+    You need further information.
+    Output: {"Reasoning": "I don't have enough information to determine the severity of the situation. I need to ask another question.", "Question" : "Have you ever had allergic reactions in your life?"} 
 
-    ### Scenario 1.2 (inglese):
-    Hai abbastanza informazioni per valutare la gravità E la situazione medica descritta dall'utente **NON è in italiano**:
-    Output: {"Reasoning": "Based on the information I have, the cut does not seem serious, so the severity of the situation is quite low.", "Score" : "2"} 
-                             
-    #### Scenario 2.1 (italiano):
-    Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **è** in italiano**:.
-    Output: {"Reasoning": "Non ho ancora abbastanza informazioni per determinare la gravità della situazione. Mi occorre effettuare un'altra domanda.", "Question" : "Hai mai avuto reazioni allergiche nella tua vita?"} 
-
-    ### Scenario 2.2 (inglese):
-    Hai bisogno di ulteriori informazioni E la situazione medica descritta dall'utente **NON è in italiano**:
-    Output: {"Reasoning": "I don't have enough information yet to determine the severity of the situation. I need to ask another question.", "Question": "Have you ever had any allergic reactions in your life?"} 
-                                                  
-    ### Documenti:
+    ### Documents:
     {{full_retrieved_info}}
 
-    ### Situazione medica dell'utente:
+    ### User's Medical Situation:
     {{full_query}}
     
     """)
     system_prompt = system_prompt.render(full_retrieved_info=None, full_query=full_query)
     updated_prompt = [HumanMessage(system_prompt)]
-    #print(f"updated_prompt: {updated_prompt}")
     start_time = time.time()
     response = llm_70b.invoke(updated_prompt).content
     end_time = time.time()
@@ -242,31 +236,15 @@ def triage_evaluation(state:TriageState):
 
 
 def create_triage_agent():
-    # Creazione del grafo
     graph = StateGraph(TriageState)
-
-    # Nodo iniziale per avviare i flussi paralleli
     graph.add_node("start_emergency_bot", start_emergency_bot)
     graph.set_entry_point("start_emergency_bot")
-
     graph.add_node("triage_evaluation", triage_evaluation)
     graph.add_edge("start_emergency_bot", "triage_evaluation")
-    #graph.add_edge("ask_user_question", "triage_evaluation")
-
-    # graph.add_conditional_edges(
-    #         "triage_evaluation",
-    #         should_ask,
-    #         {
-    #             "new_question": "ask_user_question",
-    #             "end": END,
-    #         }
-    #     )
     graph.set_finish_point("triage_evaluation")
 
-    # Compilazione del grafo
     app = graph.compile() #checkpointer=memory
 
-    # Store the image in memory using BytesIO
     img_bytes = app.get_graph().draw_mermaid_png()
     with open('presentation/agents/triage.png', 'wb') as f:
         f.write(img_bytes)

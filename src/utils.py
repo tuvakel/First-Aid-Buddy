@@ -172,20 +172,107 @@ def init_LLM(API_KEY=None):
     return client
 
 
-def call_llm(llm:Groq, llm_model_name, temperature: float = 0.5, max_tokens: int = None, top_p: float = 0.8, stop: str = None, chat_history = []) -> str:
-    
-    response_stream = llm.chat.completions.create(
+def translate(llm: Groq, llm_model_name, temperature: float = 0.0, message: str = "", target_language: str = "") -> str:
+    translate_command = f"""
+        You are a language model capable of translating text between languages.
+        Your task is to detect the source language from the given message and translate it into the target language. 
+        Keep the original format intact (including Markdown elements like headers, lists, and code blocks) while translating the text.
+
+        Input:
+        - Message: {message}
+        - Target Language: {target_language}
+
+        If target_language and source_language are the same, return the original message without changes.
+        You must provide a response in the following JSON format:
+        {{
+            "translated_query": "the translated query in the target language",
+            "source_language": "the detected source language"
+        }}
+
+        Do exactly the required task and return a JSON in the required format.
+        Do not add any additional information in the response.
+    """
+
+    response = llm.chat.completions.create(
         model=llm_model_name,
-        messages=chat_history,
+        messages=[{"role": "user", "content": translate_command}],
         temperature=temperature,
-        max_tokens=max_tokens,
-        top_p=top_p,
-        stop=None,
-        stream=True
+        stop=None
     )
 
-    return response_stream
+    response_content = response.choices[0].message.content
 
+    try:
+        translated_query_match = re.search(r'"translated_query"\s*:\s*"([^"]+)', response_content)
+        source_language_match = re.search(r'"source_language"\s*:\s*"([^"]+)', response_content)
+        
+        if translated_query_match:
+            translated_query = translated_query_match.group(1)
+        else:
+            raise ValueError(f"Unable to extract translated query from response: {response_content}")
+
+        if source_language_match:
+            source_language = source_language_match.group(1)
+        else:
+            raise ValueError(f"Unable to extract source language from response: {response_content}")
+
+    except Exception as e:
+        raise ValueError(f"Error extracting data: {e}")
+
+    return translated_query, source_language
+
+
+def get_medical_class(llm: Groq, llm_model_name, temperature: float = 0.0, chat_history: list = []) -> str:
+    if not chat_history or len(chat_history) < 1:
+        raise ValueError("Chat history is insufficient for classification.")
+
+    medical_specialties = [
+        "cardiology", "psychiatry", "dermatology", "pulmonology", "gastroenterology", 
+        "neurology", "orthopedics", "endocrinology", "hematology", "oncology", 
+        "ophthalmology", "gynecology", "urology", "rheumatology", "infectious disease", 
+        "anesthesiology", "pediatrics", "general surgery", "plastic surgery", "geriatrics", 
+        "family medicine", "radiology", "nephrology", "trauma surgery", "vascular surgery", 
+        "internal medicine"
+    ]
+
+    classify_command = f"""
+        You are a medical expert capable of classifying medical issues based on conversations. 
+        Based on the following conversation, identify the medical specialty most relevant to the issue discussed.
+        
+        Please choose one of the following specialties:
+        {', '.join(medical_specialties)}.
+        
+        If there is insufficient information to classify, or if you cannot infer the specialty, return "None".
+
+        Here is the conversation:
+        {chat_history}
+
+        Your task is to return the medical specialty as a JSON object:
+        {{
+            "medical_class": "the identified medical specialty (e.g., 'cardiology') or None if undetermined"
+        }}
+
+        Please return only the JSON object, nothing else. The response must be **always** in **English**.
+    """
+
+    response = llm.chat.completions.create(
+        model=llm_model_name,
+        messages=[{"role": "user", "content": classify_command}],
+        temperature=temperature,
+        stop=None
+    )
+
+    response_content = response.choices[0].message.content.strip()
+
+    try:
+        classification = json.loads(response_content)
+        medical_class = classification.get("medical_class", None)
+        if medical_class == "None" or medical_class not in medical_specialties:
+            return None
+    except json.JSONDecodeError:
+        raise ValueError(f"Error parsing the response: {response_content}")
+
+    return medical_class
 
 
 mapping = {
@@ -274,56 +361,86 @@ def initialize_gcs_client(SERVICE_ACCOUNT_KEY):
 
 # 2. Create a unique session file name using session_id
 def create_session_filename(session_id: str):
-    # Create a filename based on session_id
     return f"session_{session_id}.json"
 
-# 3. Write a new session data file to Google Cloud Storage (GCS)
-def write_session_to_gcs(session_id: str, app_version: str, user_location: list, severity: int, query: str, response: str, response_time: float, bucket_name: str, session_filename: str, client: storage.Client):
-    bucket = client.get_bucket(bucket_name)
-    blob = bucket.blob(session_filename)
-
-    try:
-        # Try to download the existing content (if any)
-        try:
-            content_str = blob.download_as_text()
-            existing_data = json.loads(content_str)
-        except Exception as e:
-            # If the file doesn't exist, start with an empty list
-            existing_data = []
-
-        # Look for the session with the same session_id
-        session_found = False
+# 3. Write a new session data file either locally or within Google Cloud Storage (GCS)
+def store_session_data(session_id: str, app_version: str, user_location: list,
+                        medical_class: str, severity: int,
+                        hospital_details: list, youtube_video_details: list, query: str, response: str,
+                        response_time: float, session_filename: str, local_path_name: str = None,
+                        bucket_name: str = None, client: storage.Client = None):
+    def process_session_data(existing_data, session_found=False):
+        """ Helper function to process and update the session data. """
         for session in existing_data:
             if session['session_id'] == session_id:
-                # Append the new user_query and response, response times and updating severity for the existing session
+                session['medical_class'] = medical_class
                 session['severity'] = severity
+                session['hospital'] = {"name": hospital_details[0], "gmaps_link": hospital_details[1]}
+                session['youtube_video'] = {"title": youtube_video_details[0], "link": youtube_video_details[1]}
                 session['queries'].append(query)
                 session['responses'].append(response)
                 session['response_times'].append(response_time)
                 session_found = True
                 break
-        
+
         if not session_found:
-            # If the session doesn't exist, create a new session entry
             new_session = {
                 "session_id": session_id,
                 "app_version": app_version,
                 "location": user_location,
                 "timestamp": datetime.now().isoformat(),
+                "medical_class": medical_class,
                 "severity": severity,
-                "queries": [query], 
+                "hospital": {"name": hospital_details[0], "gmaps_link": hospital_details[1]},
+                "youtube_video": {"title": youtube_video_details[0], "link": youtube_video_details[1]},
+                "queries": [query],
                 "responses": [response],
-                "response_times": [response_time] 
+                "response_times": [response_time]
             }
             existing_data.append(new_session)
+        return existing_data
 
-        # Convert the updated data back to JSON string
-        updated_content_str = json.dumps(existing_data, indent=4)
+    # If data should be saved locally
+    if local_path_name:
+        local_file_path = f"{local_path_name}/{session_filename}"
+        os.makedirs(local_path_name, exist_ok=True) 
 
-        # Upload the updated content back to GCS
-        blob.upload_from_string(updated_content_str, content_type='application/json')
-        print(f"Session file {session_filename} updated successfully.")
+        try:
+            existing_data = []
+            if os.path.exists(local_file_path):
+                with open(local_file_path, 'r') as f:
+                    existing_data = json.load(f)
 
-    except Exception as e:
-        print(f"Error writing session to GCS: {e}")
+            existing_data = process_session_data(existing_data)
+
+            with open(local_file_path, 'w') as f:
+                json.dump(existing_data, f, indent=4)
+
+            print(f"Session file {session_filename} saved locally.")
+
+        except Exception as e:
+            print(f"Error writing session data locally: {e}")
+    
+    # If data should be saved to GCS
+    if client and bucket_name:
+        bucket = client.get_bucket(bucket_name)
+        blob = bucket.blob(session_filename)
+
+        try:
+            try:
+                content_str = blob.download_as_text()
+                existing_data = json.loads(content_str)
+            except Exception:
+                existing_data = []
+
+            existing_data = process_session_data(existing_data)
+
+            updated_content_str = json.dumps(existing_data, indent=4)
+            blob.upload_from_string(updated_content_str, content_type='application/json')
+
+            print(f"Session file {session_filename} updated successfully in GCS.")
+
+        except Exception as e:
+            print(f"Error writing session to GCS: {e}")
+
     
