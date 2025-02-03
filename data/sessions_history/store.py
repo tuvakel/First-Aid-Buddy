@@ -74,7 +74,7 @@ def get_existing_session_ids(bigquery_client, table_ref):
 
 
 def create_table_if_not_exists(bigquery_client, dataset_id, table_id, df):
-    """Create a BigQuery table if it does not exist."""
+    """Create a BigQuery table if it does not exist with partitioning and clustering."""
     table_ref = bigquery_client.dataset(dataset_id).table(table_id)
 
     try:
@@ -87,7 +87,13 @@ def create_table_if_not_exists(bigquery_client, dataset_id, table_id, df):
             bigquery.SchemaField(name, "STRING" if df[name].dtype == 'object' else "FLOAT64" if df[name].dtype == 'float64' else "TIMESTAMP")
             for name in df.columns
         ]
+        
+        # Define the partitioning and clustering
         table = bigquery.Client().dataset(dataset_id).table(table_id, schema=schema)
+        table.schema = schema
+        table.time_partitioning = bigquery.TimePartitioning(field="timestamp", type_="DAY")  # Partition by the date of timestamp
+        table.clustering_fields = ["medical_class", "severity"]  # Cluster by medical_class and severity
+        
         bigquery_client.create_table(table)
         print(f"Table '{table_id}' created successfully.")
 
@@ -118,22 +124,16 @@ def json_files_to_bigquery(bucket_name, dataset_id, table_id, storage_client, bi
         # Create table if not exists
         create_table_if_not_exists(bigquery_client, dataset_id, table_id, df)
 
-        # Convert DataFrame to list of rows (for BigQuery insertion)
-        rows_to_insert = df.values.tolist()
-
         # Append the new data to BigQuery without overwriting the existing table
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
         bigquery_client.load_table_from_dataframe(df, table_ref, job_config=job_config).result()
 
-        st.success(f"Data successfully loaded into BigQuery table: {table_id}")
+        print(f"Data successfully loaded into BigQuery table: {table_id}")
 
 
 def process_local_json(folder_path):
     """Process JSON files from a local folder and store them in memory as a list of lists."""
     df = json_files_to_dataframe(folder_path)
-    
-    # Convert the DataFrame to list of lists
-    data_as_list = df.values.tolist()
 
     # Save the data to CSV as a list of lists with headers
     csv_file_path = os.path.join(folder_path, "sessions_history.csv")
