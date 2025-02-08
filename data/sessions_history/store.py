@@ -30,6 +30,7 @@ def json_files_to_dataframe(folder_path):
                 'session_id': entry.get('session_id'),
                 'app_version': entry.get('app_version'),
                 'location': entry.get('location', []),  # Ensure location is always a list, default to empty list if missing
+                'country': entry.get('country'),
                 'timestamp': entry.get('timestamp'),
                 'medical_class': entry.get('medical_class'),
                 'severity': entry.get('severity'),
@@ -59,7 +60,7 @@ def json_files_to_dataframe(folder_path):
 
     # Select only the required columns
     required_columns = [
-        'session_id', 'app_version', 'location', 'timestamp', 'medical_class', 'severity', 'queries', 'responses',
+        'session_id', 'app_version', 'location', 'country', 'timestamp', 'medical_class', 'severity', 'queries', 'responses',
         'response_times', 'hospital_name', 'hospital_gmaps_link', 'youtube_video_title', 'youtube_video_link'
     ]
     df = df[required_columns]

@@ -86,7 +86,7 @@ def generate_app_id(github_repo: str, last_commit_file: str, version_file: str):
 
 def get_language(location):
     if location == (None, None):
-        return 'en', 'Disabled'
+        return 'en', None, None 
     else:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
         headers = {
@@ -101,11 +101,11 @@ def get_language(location):
                 + ', ' + data.get('address', {}).get('state', None)  \
                 + ', ' + data.get('address', {}).get('country', None)
             if country.lower() == 'italia':
-                return 'it', detailed_location
-            else: return 'en', detailed_location
+                return 'it', detailed_location, country
+            else: return 'en', detailed_location, country
         else:
             print(f"Error getting language from location") 
-            return 'en', 'Disabled'
+            return 'en', None, None
 
 
 def get_sidebar(language):
@@ -364,7 +364,7 @@ def create_session_filename(session_id: str):
     return f"session_{session_id}.json"
 
 # 3. Write a new session data file either locally or within Google Cloud Storage (GCS)
-def store_session_data(session_id: str, app_version: str, user_location: list,
+def store_session_data(session_id: str, app_version: str, user_location: list, country:str,
                         medical_class: str, severity: int,
                         hospital_details: list, youtube_video_details: list, query: str, response: str,
                         response_time: float, session_filename: str, local_path_name: str = None,
@@ -388,6 +388,7 @@ def store_session_data(session_id: str, app_version: str, user_location: list,
                 "session_id": session_id,
                 "app_version": app_version,
                 "location": user_location,
+                "country": country,
                 "timestamp": datetime.now().isoformat(),
                 "medical_class": medical_class,
                 "severity": severity,

@@ -42,7 +42,7 @@ if st.sidebar.checkbox("Use my current location", value=False):
 else:
     user_location = (None, None)
 
-language, detailed_location = get_language(user_location)
+language, detailed_location, country = get_language(user_location)
 
 # Initialize the LLM with the Google API key from secrets
 llm = init_LLM(API_KEY=st.secrets["GROQ"]["GROQ_API_KEY"])
@@ -88,7 +88,8 @@ emergency_agent = load_emergency_agent()
 
 # Main function
 def main():
-    st.sidebar.markdown(f"**Location details:** {detailed_location}" if language != "it" else f"**Dettagli posizione:** {detailed_location}")
+    detailed_location_new = "Unknown" if detailed_location is None else detailed_location
+    st.sidebar.markdown(f"**Location details:** {detailed_location_new}" if language != "it" else f"**Dettagli posizione:** {detailed_location_new}")
     
     get_sidebar(language)
 
@@ -230,7 +231,8 @@ def main():
             gcs_client = initialize_gcs_client(SERVICE_ACCOUNT_KEY=st.secrets["GCP"]["SERVICE_ACCOUNT_KEY"]) if STORE_SESSIONS_DATA_GCS else None
             store_session_data(
                 session_id=session_id, app_version=app_version,
-                user_location=user_location, 
+                user_location=user_location,
+                country=country, 
                 medical_class=get_medical_class(llm=llm, llm_model_name=llm_text_model_name, chat_history=st.session_state.chat_history), 
                 severity=severity,
                 hospital_details=[hospital_name, google_maps_link],
