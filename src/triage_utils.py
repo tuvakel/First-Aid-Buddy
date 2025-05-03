@@ -7,8 +7,8 @@ import os
 import streamlit as st
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from langchain_community.vectorstores import FAISS
+from langchain_community.retrievers import BM25Retriever, EnsembleRetriever
 from concurrent.futures import ThreadPoolExecutor
 from langchain.schema import Document
 import re
