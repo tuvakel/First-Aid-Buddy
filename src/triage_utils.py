@@ -1,95 +1,100 @@
 from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
-from typing import TypedDict, List, Annotated
+from typing import TypedDict, List, Annotated, Any
 from langgraph.graph.message import add_messages
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage,  AIMessage
 import os
 import streamlit as st
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
 from concurrent.futures import ThreadPoolExecutor
 from langchain.schema import Document
-import re
 from jinja2 import Template
 import time
 import json
 #from langgraph.checkpoint.memory import MemorySaver
-#memory = MemorySaver()
+import re
 import pickle
+from langchain_core.messages import AIMessage    
+from src.utils import init_chat_LLM
+llm_70b = init_chat_LLM(api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
-llm_70b = ChatGroq(model="llama-3.3-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
-llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
 
 def process_pages(pages:List[Document]):
-    import re
+    
     for doc in pages:
+        # Remove ESI handbook repeating chapter headers
         doc.page_content = doc.page_content.replace(
-            "Manuale regionale Triage intra-ospedaliero modello Lazio a cinque codici \n \n", ""
+            "Chapter 1. Introduction to the Emergency Severity Index: A Research-Based Triage Tool", ""
         )
+        doc.page_content = doc.page_content.replace(
+            "Chapter 2. Overview of the Emergency Severity Index", ""
+        )
+        doc.page_content = doc.page_content.replace(
+            "Chapter 1. Introduction to the Emergency Severity Index: A Research-Based Triage Tools", ""
+        )
+        # Remove stray page numbers
         doc.page_content = re.sub(r'^\d+\s*\n\s*\n', '', doc.page_content)
+        # Fix capitalisation artefact from Word-to-PDF conversion (paTienT → patient)
+        doc.page_content = re.sub(r'(?<=[a-z])T(?=[a-z])', 't', doc.page_content)
     return pages
 
 
 def process_pdf_triage(file_path:str):
     print('process_pdf_triage')
-    # Carica le pagine del PDF
+    # Load the PDF pages
     loader = PyPDFLoader(file_path)
-    pages = loader.load()[11:]
+    pages = loader.load()[10:]
 
-    # Dividi le pagine in sottogruppi per ogni core
-    num_cores = os.cpu_count()  # Numero di core disponibili
+    # Split the pages into subgroups for each core
+    num_cores = os.cpu_count() or 1  # fallback to 1 in containers
     chunk_size = len(pages) // num_cores + (len(pages) % num_cores > 0)
     chunks = [pages[i:i + chunk_size] for i in range(0, len(pages), chunk_size)]
 
-    # Parallelizza il lavoro con ProcessPoolExecutor
+    # Parallelize the work with ThreadPoolExecutor
     with ThreadPoolExecutor() as executor:
         processed_chunks = list(executor.map(process_pages, chunks))
 
-    # Combina i risultati
+    # Combine the results
     documents = [page for chunk in processed_chunks for page in chunk]
     return documents
 
 
-def create_bm25_retriever_triage(pdf_file_path:str, bm25_index_path):
+def create_bm25_retriever_triage(pdf_file_path: str, bm25_index_path):
     """
-    Crea o carica un retriever BM25.
-
-    Args:
-        documents (list): Lista di documenti da indicizzare.
-        bm25_index_path (str): Percorso per salvare o caricare l'indice BM25.
-
-    Returns:
-        BM25Retriever: Un retriever BM25.
+    Create or load BM25 retriever safely.
     """
-    # Se esiste un file salvato, carica il retriever
+
+    # ✅ Ensure directory exists BEFORE anything else
+    os.makedirs(os.path.dirname(bm25_index_path), exist_ok=True)
+
     if os.path.exists(bm25_index_path):
-        #print("Caricamento retriever BM25 esistente.")
         with open(bm25_index_path, "rb") as f:
-            bm25_retriever : BM25Retriever = pickle.load(f)
+            bm25_retriever = pickle.load(f)
             bm25_retriever.k = 3
             documents = []
     else:
-        #print("Creazione di un nuovo retriever BM25.")
-        # Creazione del retriever BM25
         documents = process_pdf_triage(pdf_file_path)
         bm25_retriever = BM25Retriever.from_documents(documents)
         bm25_retriever.k = 3
-        # Salva il retriever
+
+        # ✅ Now safe to save
         with open(bm25_index_path, "wb") as f:
             pickle.dump(bm25_retriever, f)
-    
+
     return bm25_retriever, documents
 
 
 def create_triage_retriever(pdf_file_path:str, bm25_index_path:str, faiss_path:str):
-    # Step 1: Configura l'indice BM25 per i titoli
+    # Step 1: Configure the BM25 index for titles
     bm25_retriever, documents = create_bm25_retriever_triage(pdf_file_path, bm25_index_path)
-    # Step 2: Configura FAISS per i contenuti
-    embedding = OpenAIEmbeddings(api_key=st.secrets["OPENAI"]["OPENAI_API_KEY"])
-    if os.path.exists(faiss_path):
+    # Step 2: Configure FAISS for the content
+    embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    faiss_index_file = os.path.join(faiss_path, "index.faiss")
+    if os.path.exists(faiss_index_file):
         vectorstore = FAISS.load_local(faiss_path, embeddings=embedding, allow_dangerous_deserialization=True)
         print('load triage retriever')
     else:
@@ -102,34 +107,45 @@ def create_triage_retriever(pdf_file_path:str, bm25_index_path:str, faiss_path:s
             vectorstore.save_local(faiss_path)
     similarity_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 4})
 
-    # Step 3: Configura un MultiRetriever
+    # Step 3: Configure a MultiRetriever
     ensemble_retriever = EnsembleRetriever(retrievers=[
         bm25_retriever,
         similarity_retriever
     ], weights=[0.3, 0.7])
-    return ensemble_retriever
+    class SafeRetriever:
+        def __init__(self, retriever):
+            self.retriever = retriever
+
+        def invoke(self, query):
+            if not isinstance(query, str):
+                print("⚠️ FIXING QUERY TYPE:", type(query))
+                query = str(query)
+            return self.retriever.invoke(query)
+
+    return SafeRetriever(ensemble_retriever)
 
 
 severity_to_color = {
-    1: "#00FF00",  # Verde
-    2: "#ADFF2F",  # Giallo-verde
-    3: "#FFFF00",  # Giallo
-    4: "#FFA500",  # Arancione
-    5: "#FF0000"   # Rosso
+    1: "#00FF00",  
+    2: "#ADFF2F",  
+    3: "#FFFF00",  
+    4: "#FFA500",  
+    5: "#FF0000"   
 }
 
 
+
 class TriageState(TypedDict):
-    ensemble_retriever_triage : EnsembleRetriever
-    severity : int
-    questions : Annotated[list, add_messages]
+    ensemble_retriever_triage: Any
+    severity: int
+    questions: Annotated[list, add_messages]
     messages: Annotated[list, add_messages]
-    full_query : str
+    full_query: str
 
 
 def start_emergency_bot(state:TriageState):
-    # Nodo di coordinamento iniziale, ritorna lo stato invariato
-    return state
+    # Initial coordination node, returns the state unchanged
+    return {}
 
 
 def log_state(node_name, state:TriageState):
@@ -138,17 +154,42 @@ def log_state(node_name, state:TriageState):
 
 def extract_json_from_response(response_text: str) -> dict:
     cleaned_resp = response_text.strip()
-    match = re.search(r'\s*(\{.*?\})\s*', cleaned_resp, re.DOTALL)
+    
+    # 1. Try to find a JSON object first (existing logic)
+    match = re.search(r'(\{.*\})', cleaned_resp, re.DOTALL)
     if match:
-        cleaned_resp = match.group(1)
-    try:
-        return json.loads(cleaned_resp)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"JSON decoding error: {e}. Response received: {response_text}")
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass  # fall through to plain-text parsing
+
+    # 2. Fallback: parse plain "Key: Value" format
+    result = {}
+    for line in cleaned_resp.splitlines():
+        if ':' in line:
+            key, _, value = line.partition(':')
+            result[key.strip()] = value.strip()
+    
+    if 'Score' in result or 'Question' in result:
+        return result
+
+    raise ValueError(
+        f"JSON decoding error: Could not parse response. "
+        f"Response received: {response_text}"
+    )
 
 
-def triage_evaluation(state:TriageState):
+def triage_evaluation(state: TriageState):
     messages = state['messages']
+
+    # Convert messages to plain text
+    clean_messages = []
+    for m in messages:
+        if hasattr(m, "content"):
+            clean_messages.append(m.content)
+        else:
+            clean_messages.append(str(m))
+    messages_str = "\n".join(clean_messages)
 
 
     contextualize_q_system_prompt = f"""You are an AI assistant specialized in medical triage. Your task is to analyze the conversation history between the user and the AI, understand the user's current medical concerns, and summarize the key information. Do NOT answer the question, just reformulate it if needed and otherwise return it as is.
@@ -166,17 +207,55 @@ def triage_evaluation(state:TriageState):
 
     ### Input:
     Conversation History:
-    {messages}
+    {messages_str}
 
     ### Output:"""
-    full_query = llm_70b.invoke(contextualize_q_system_prompt).content
+    if isinstance(state, dict):
+        print("STATE KEYS:", state.keys())
+    response_obj = llm_70b.invoke([HumanMessage(content=contextualize_q_system_prompt)])
 
+    full_query = response_obj.content
+
+    if not isinstance(full_query, str):
+        print("⚠️ full_query was not string:", type(full_query))
+        full_query = str(full_query)
+    
+    if not isinstance(full_query, str):
+        full_query = str(full_query)
+    print("DEBUG full_query TYPE:", type(full_query))
+    print("DEBUG full_query VALUE:", full_query)
     print(f"full_query: {full_query}")
-    #ensemble_retriever_triage = state['ensemble_retriever_triage']
-    #retrieved_docs = ensemble_retriever_triage.invoke(full_query)
-    #print(f"len_retrieved_docs: {len(retrieved_docs)}")
-    #retrieved_info = [doc.page_content for doc in retrieved_docs]
-    #full_retrieved_info = " ".join([message for message in retrieved_info[:2]])
+    
+    
+    ensemble_retriever_triage = state.get('ensemble_retriever_triage')
+
+    retrieved_docs = []
+    if ensemble_retriever_triage is None:
+        print("⚠️ No retriever found in state")
+        retrieved_docs = []
+    else:
+        retrieved_docs = []
+
+        if ensemble_retriever_triage:
+            try:
+                if not isinstance(full_query, str):
+                    full_query = str(full_query)
+                    
+                print("FINAL QUERY:", full_query)
+                print("TYPE:", type(full_query))
+                
+                print("🔍 QUERY TYPE BEFORE RETRIEVER:", type(full_query))
+                retrieved_docs = ensemble_retriever_triage.invoke(full_query)
+
+            except Exception as e:
+                print("🚨 RETRIEVER FAILED:", e)
+                print("🚨 QUERY VALUE:", full_query)
+
+    retrieved_info = [
+        doc.page_content for doc in retrieved_docs[:2]
+        if hasattr(doc, "page_content")
+    ]
+    full_retrieved_info = " ".join(retrieved_info) if retrieved_info else ""
     system_prompt = Template("""
     You are a highly skilled professional in emergency medicine, specializing in Triage. Your task is to assess the severity of the user's situation by providing a score from 1 to 5, or ask a concise question to obtain further information if necessary.
 
@@ -221,7 +300,7 @@ def triage_evaluation(state:TriageState):
     {{full_query}}
     
     """)
-    system_prompt = system_prompt.render(full_retrieved_info=None, full_query=full_query)
+    system_prompt = system_prompt.render(full_retrieved_info=full_retrieved_info, full_query=full_query)
     updated_prompt = [HumanMessage(system_prompt)]
     start_time = time.time()
     response = llm_70b.invoke(updated_prompt).content
@@ -229,11 +308,23 @@ def triage_evaluation(state:TriageState):
     print(f"Time taken for LLM invoke: {end_time - start_time:.2f} seconds\n")
     print(f"response: {response}")
     response = extract_json_from_response(response)
-    # Analizza il tipo di risposta
+    # Analyze the type of response
     if 'Score' in response:
-        return {"severity": response['Score'], 'full_query': full_query}  # Restituisce il numero, 'next_node' : 'end'
+        try:
+            raw_score = float(response['Score'])       # float handles "3.5" safely
+            clamped = max(1, min(5, int(raw_score)))   # clamp to 1–5
+        except (ValueError, TypeError):
+            clamped = 3                                 # safe middle-ground fallback
+        return {
+            "severity": clamped,
+            "full_query": full_query
+        }
+
     else:
-        return {"questions": response['Question']}  # , 'next_node' : 'new_question', Restituisce la domanda
+        return {
+            "questions": [AIMessage(content=response['Question'])],
+            "full_query": full_query  # ✅ preserve it
+        }
 
 
 def create_triage_agent():
@@ -246,8 +337,8 @@ def create_triage_agent():
 
     app = graph.compile() #checkpointer=memory
 
-    img_bytes = app.get_graph().draw_mermaid_png()
-    with open('presentation/agents/triage.png', 'wb') as f:
-        f.write(img_bytes)
+    #img_bytes = app.get_graph().draw_mermaid_png()
+    #with open('presentation/agents/triage.png', 'wb') as f:
+        #f.write(img_bytes)
 
     return app

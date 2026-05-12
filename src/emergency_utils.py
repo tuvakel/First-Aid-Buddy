@@ -1,9 +1,9 @@
 from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph
 import pickle
-from typing import TypedDict, Annotated, List
+from typing import TypedDict, Annotated, List, Any
 from langgraph.graph.message import add_messages
-import geocoder
+
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage
 from langchain_community.utilities import GoogleSerperAPIWrapper
 import requests
@@ -13,178 +13,113 @@ import json
 from dotenv import load_dotenv
 load_dotenv()
 import os
-import requests
 import streamlit as st
-import re
 from jinja2 import Template
-from PIL import Image
+
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_openai import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 #from langchain.embeddings import OpenAIEmbeddings
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from langchain.schema import Document
-import io
+
+# from pdf2image import convert_from_path, convert_from_bytes
+from pdf2image import convert_from_path
+import pytesseract
 
 
-llm_70b = ChatGroq(model="llama-3.3-70b-versatile", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
-llm_8b = ChatGroq(model="llama-3.1-8b-instant", api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+from src.utils import init_chat_LLM
+llm_70b = init_chat_LLM(api_key=st.secrets["GROQ"]["GROQ_API_KEY"])
+os.environ["SERPER_API_KEY"] = st.secrets["SERPER"]["SERPER_API_KEY"]
 
 
-def get_user_location():
-    """
-    Ottieni la posizione dell'utente tramite IP.
-    
-    Returns:
-        tuple: Latitudine e longitudine dell'utente o None se non disponibile.
-    """
-    location = geocoder.ip('me')
-    return location.latlng if location.latlng else (None, None)
 
 
 def process_pdf_emergency(file_path):
     """
-    Carica e processa un file PDF per estrarre il contenuto delle pagine desiderate.
+    Load and process the St John Ambulance First Aid Manual using OCR.
+    Converts each PDF page to an image and extracts text with pytesseract.
+    Skips the first 12 pages (cover, foreword, contents).
 
     Args:
-        file_path (str): Percorso al file PDF.
+        file_path (str): Path to the PDF file.
 
     Returns:
-        str: Testo processato e unificato delle pagine selezionate.
+        list[Document]: LangChain-compatible Document objects, one per page.
     """
-    print('process_pdf_emergency')
-    loader = PyPDFLoader(file_path)
-    pages = loader.load()[40:]
-    full_text = "\n".join([doc.page_content for doc in pages])
-    full_text = full_text.replace("MANUALE PER GLI INCARICATI DI PRIMO SOCCORSO", "")
-    full_text = full_text.replace("LE POSIZIONI DI SICUREZZA", "")
-    full_text = full_text.replace("APPARATO VISIVO", "")
-    full_text = full_text.replace("APPARATO UDITIVO", "")
-    full_text = full_text.replace("SISTEMA NERVOSO - anatomia", "")
-    full_text = full_text.replace("IL SISTEMA NERVOSO\n", "")
-    full_text = full_text.replace("-\n", "")
-    # Espressione regolare per identificare titoli in maiuscolo (che terminano con \n)
-    main_title_pattern = r'(?:\n|^)([A-Z\s\’\’]+(?:\n[A-Z\s\’\’]+)*)\n'
-    sub_section_pattern = r'(?:^|\n)([a-z]\))'  # Per riconoscere sottosezioni come "a)" o "b)"
-    degree_section_pattern = r'(?:^|\n)([IV]+\s+GRADO)'
+    print('process_pdf_emergency — OCR mode (St John Ambulance)')
 
-    # Mappa dei numeri di pagina
-    page_number_map = []
-    for page in pages:
-        page_number_map.append({"text": page.page_content, "page_number": page.metadata["page"]})
+    # Convert all pages to images at once — cross-platform, no poppler_path needed
+    images = convert_from_path(file_path, dpi=200)
 
-    # Trova tutti i titoli principali
-    matches = list(re.finditer(main_title_pattern, full_text))
     documents = []
-    current_content = ""
-    current_title = None
-    current_page = None
+    for i, image in enumerate(images[12:], start=12):  # skip first 12 pages
+        text = pytesseract.image_to_string(image)
 
-    for i in range(len(matches)):
-        # Ottieni il titolo corrente
-        title_start = matches[i].start()
-        title_end = matches[i].end()
-        title = full_text[title_start:title_end].strip()
+        # Clean common OCR artefacts
+        text = text.replace("-\n", "")             # fix hyphenated line breaks
+        text = re.sub(r'\n{3,}', '\n\n', text)     # collapse excessive blank lines
+        text = re.sub(r'[^\x00-\x7F]+', ' ', text) # remove non-ASCII noise
 
-        # Determina il contenuto fino al prossimo titolo principale o alla fine del testo
-        if i + 1 < len(matches):
-            content_start = title_end
-            content_end = matches[i + 1].start()
-            content = full_text[content_start:content_end].strip()
-        else:
-            content = full_text[title_end:].strip()
+        # Skip near-empty pages (full-page photos with no text)
+        if len(text.strip()) < 50:
+            continue
 
-        # Trova il numero di pagina del titolo corrente
-        if current_page is None:
-            for page in page_number_map:
-                if title in page["text"]:
-                    current_page = page["page_number"]
-                    break
+        # Use first non-empty line as section title
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        title = lines[0] if lines else f"Page {i}"
 
-        # Accorpa sottosezioni (es: "a)", "b)", "I GRADO", "II GRADO") al contenuto principale
-        content_lines = content.split("\n")
-        organized_content = []
-        current_subsection = None
+        documents.append(Document(
+            page_content=text,
+            metadata={"title": title, "page_nr": i}
+        ))
 
-        for line in content_lines:
-            # Riconosci sottosezioni come "a)", "b)"
-            if re.match(sub_section_pattern, line):
-                current_subsection = line
-                organized_content.append(f"\n{line}")
-            # Riconosci sezioni come "I GRADO", "II GRADO"
-            elif re.match(degree_section_pattern, line):
-                current_subsection = line
-                organized_content.append(f"\n{line}")
-            elif current_subsection:
-                # Accorpa le righe successive alla sottosezione corrente
-                organized_content[-1] += f" {line.strip()}"
-            else:
-                # Accorpa al contenuto principale
-                organized_content.append(line.strip())
+        if i % 20 == 0:
+            print(f"  OCR progress: page {i}/{len(images) + 12}")
 
-        content = "\n".join(organized_content)
-
-        # Salva il documento precedente
-        if current_title:
-            documents.append({"title": current_title, "page_content": current_content, "page_nr": current_page})
-
-        # Inizia un nuovo documento
-        current_title = title
-        current_content = content
-        current_page = None  # Reset del numero di pagina
-
-    # Salva l'ultimo documento
-    if current_title:
-        documents.append({"title": current_title, "page_content": current_content, "page_nr": current_page})
-
-    # Converti in oggetti Document compatibili con LangChain
-    documents = [
-        Document(
-            page_content=doc["page_content"],
-            metadata={"title": doc["title"], "page_nr": doc["page_nr"]}
-        )
-        for doc in documents
-    ]
+    print(f"process_pdf_emergency — extracted {len(documents)} documents")
     return documents
 
 
-def create_bm25_retriever_emergency(pdf_file_path, bm25_index_path):
-    """
-    Crea o carica un retriever BM25.
+def create_bm25_retriever_emergency(pdf_file_path: str, bm25_index_path):
 
-    Args:
-        documents (list): Lista di documenti da indicizzare.
-        bm25_index_path (str): Percorso per salvare o caricare l'indice BM25.
+    try:
+        os.makedirs(os.path.dirname(bm25_index_path), exist_ok=True)
 
-    Returns:
-        BM25Retriever: Un retriever BM25.
-    """
-    # Se esiste un file salvato, carica il retriever
-    if os.path.exists(bm25_index_path):
-        #print("Caricamento retriever BM25 esistente.")
-        with open(bm25_index_path, "rb") as f:
-            bm25_retriever = pickle.load(f)
+        if os.path.exists(bm25_index_path):
+            with open(bm25_index_path, "rb") as f:
+                bm25_retriever = pickle.load(f)
+                bm25_retriever.k = 3
+                documents = []
+        else:
+            documents = process_pdf_emergency(pdf_file_path)
+            bm25_retriever = BM25Retriever.from_documents(documents)
             bm25_retriever.k = 3
-            documents = []
-    else:
-        #print("Creazione di un nuovo retriever BM25.")
-        # Creazione del retriever BM25
+
+            with open(bm25_index_path, "wb") as f:
+                pickle.dump(bm25_retriever, f)
+
+        return bm25_retriever, documents
+
+    except Exception as e:
+        print("BM25 emergency creation failed:", e)
+
+        # fallback (VERY IMPORTANT)
         documents = process_pdf_emergency(pdf_file_path)
         bm25_retriever = BM25Retriever.from_documents(documents)
         bm25_retriever.k = 3
-        # Salva il retriever
-        with open(bm25_index_path, "wb") as f:
-            pickle.dump(bm25_retriever, f)
-    
-    return bm25_retriever, documents
+
+        return bm25_retriever, documents
 
 
 def create_emergency_retriever(pdf_file_path,  bm25_index_path, faiss_path):
-    # Step 1: Configura l'indice BM25 per i titoli
+    # Step 1: Configure the BM25 index for titles.
     bm25_retriever, documents = create_bm25_retriever_emergency(pdf_file_path, bm25_index_path)
-    # Step 2: Configura FAISS per i contenuti
-    embedding = OpenAIEmbeddings(api_key=st.secrets["OPENAI"]["OPENAI_API_KEY"])
-    if os.path.exists(faiss_path):
+    # Step 2: Configure FAISS for the content.
+    embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    faiss_index_file = os.path.join(faiss_path, "index.faiss")
+    if os.path.exists(faiss_index_file):
         vectorstore = FAISS.load_local(faiss_path, embeddings=embedding, allow_dangerous_deserialization=True)
         print('load emergency retriever')
     else:
@@ -197,12 +132,23 @@ def create_emergency_retriever(pdf_file_path,  bm25_index_path, faiss_path):
             vectorstore.save_local(faiss_path)
     similarity_retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 4})
 
-    # Step 3: Configura un MultiRetriever
+    # Step 3: Configure a MultiRetriever.
     ensemble_retriever = EnsembleRetriever(retrievers=[
         bm25_retriever,
         similarity_retriever
     ], weights=[0.3, 0.7])
-    return ensemble_retriever
+    class SafeRetriever:
+        def __init__(self, retriever):
+            self.retriever = retriever
+
+        def invoke(self, query):
+            if not isinstance(query, str):
+                print("⚠️ FIXING QUERY TYPE:", type(query))
+                query = str(query)
+            return self.retriever.invoke(query)
+
+    return SafeRetriever(ensemble_retriever)
+
 
 
 class AgentState(TypedDict):
@@ -210,10 +156,10 @@ class AgentState(TypedDict):
     full_query:str
     severity: int
     messages: Annotated[list, add_messages]
-    prompt: Template
+    prompt: str
 
     rag_answer : str
-    ensemble_retriever : EnsembleRetriever
+    ensemble_retriever : Any
 
     keywords_youtube: str
     search_results: str
@@ -221,29 +167,46 @@ class AgentState(TypedDict):
     youtube_api_key : str
     retry_count_youtube: int
 
-    google_maps_api_key : str
+    
     google_maps_url: str
     user_location : List[str]
     hospital_name : str
-    
+    emergency_number: str 
     
     web_search_keywords : str
     retry_count_web_search : int
     web_answer : str
-
+    web_info: Any 
     final_result: List[str]
 
 
-def answer_from_rag(state:AgentState):
+def answer_from_rag(state: AgentState):
     log_state("answer_from_rag", state)
     full_query = state['full_query']
     ensemble_retriever = state['ensemble_retriever']
-    #retrieved_docs = ensemble_retriever.invoke(full_query)
-    #retrieved_info = [doc.page_content for doc in retrieved_docs[:2]]
-    prompt = state['prompt'].render(full_query=full_query, retrieved_info=None)
+    emergency_number = state.get('emergency_number', '112')  # ✅ get it
+
+    retrieved_info = None
+    if ensemble_retriever:
+        try:
+            retrieved_docs = ensemble_retriever.invoke(full_query)
+            retrieved_info = [doc.page_content for doc in retrieved_docs[:2]]
+        except Exception as e:
+            print(f"⚠️ Retriever failed: {e}")
+
+    prompt_path = state['prompt']
+    from jinja2 import Environment, FileSystemLoader
+    import os
+    env = Environment(loader=FileSystemLoader(os.path.dirname(prompt_path)))
+    template = env.get_template(os.path.basename(prompt_path))
+    prompt = template.render(
+        full_query=full_query,
+        retrieved_info=retrieved_info,
+        emergency_number=emergency_number  # ✅ pass to template
+    )
+
     response = llm_70b.invoke([HumanMessage(content=prompt)]).content.strip()
-    print(f"response: {response}")
-    return {"rag_answer" : response, "full_query" : full_query}
+    return {"rag_answer": response, "full_query": full_query}
 
 
 def log_state(node_name, state:AgentState):
@@ -261,35 +224,38 @@ def web_search(state: AgentState) -> str:
         str: A string containing useful and relevant information retrieved from certified websites related to the user's query. 
              If no pertinent information is found, it returns a message indicating the absence of results.
     """
-    # Fase 1: Ricerca su Internet
+    # Phase 1: Internet search.
     log_state("web_search", state)
     query = state['web_search_keywords']
     if not isinstance(query, str):
-        return "Nessun contenuto pertinente trovato su Internet"
+        return {"web_info": "NO Info"}
+    serper = GoogleSerperAPIWrapper()
+
     compliant_links = ['webmd', 'mayoclinic']
-    serper = GoogleSerperAPIWrapper(api_key=os.environ["SERPER_API_KEY"])
     try:
         search_results = serper.results(query)['organic']
-        # Filtra e seleziona un link per ciascun dominio compliant
+        # Filter and select one link for each compliant domain.
         selected_links = []
         for domain in compliant_links:
             for result in search_results:
                 if domain in result['link']:
                     selected_links.append(result['link'])
-                    break  # Esci dal ciclo per passare al prossimo dominio
+                    break  # Exit the loop to move on to the next domain.
 
         general_content = []
+        if not selected_links:
+            return {"web_info": "NO Info"}
         selected_links = [selected_links[0]]
         for url in selected_links:
             try:
-                # Effettua una richiesta al sito
+                # Make a request to the website
                 response = requests.get(url)
-                response.raise_for_status()  # Controlla se la richiesta è andata a buon fine
+                response.raise_for_status()  # Check if the request was successful
                 
-                # Analizza il contenuto della pagina con BeautifulSoup
+                # Parse the page content with BeautifulSoup."
                 soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # Estrai il contenuto principale della pagina (potresti dover adattare il selettore)
+                # Extract the main content of the page (you may need to adapt the selector).
                 page_content = soup.get_text(separator=' ', strip=True)
                 
                 general_content.append(page_content)
@@ -305,7 +271,7 @@ def extract_keywords_web_search(state:AgentState):
    log_state("extract_keywords_web_search", state)
    query = state['full_query']
    previous_keywords = state.get('web_search_keywords', '')
-    # Costruisci il prompt
+    # Build the prompt
    prompt = f"""You are a highly skilled virtual assistant with expertise in first aid. Your task is to extract the most relevant medical keywords from the user's query. These keywords will help optimize searches for first aid guidance on various websites. Follow these instructions carefully:
     
     1. **Understand User Needs:** Analyze the user query to understand the specific medical needs or issues.
@@ -341,29 +307,29 @@ def extract_keywords_web_search(state:AgentState):
    Query: '{query}'
 
     Return the data strictly as a JSON object, with the following structure:
-    {
+    {{
         "keywords": "allergic reaction help, first aid"
-    }
+    }}
     """
         
-   # Chiamata al modello LLM
+   # Call the LLM model
    response = llm_70b.invoke([HumanMessage(content=prompt)])
-   return {"web_search_keywords": json.loads(response.content)["keywords"], "retry_count_web_search" : state["retry_count_web_search"]+1}
+   try:
+       keywords = json.loads(response.content)["keywords"]
+   except (json.JSONDecodeError, KeyError):
+       keywords = query[:50]  # use truncated query as fallback
+   return {"web_search_keywords": keywords, "retry_count_web_search": state["retry_count_web_search"] + 1}
 
-
-# Funzione per controllare se continuare
-def should_continue_web_search(state:AgentState):
-    web_search_results = state.get('web_answer', '')
-    #log_state("should_continue_web_search", state)
-    #print(state['retry_count_web_search'])
+# Function to check whether to continue
+def should_continue_web_search(state: AgentState):
+    web_info = state.get('web_info', '')               # correct field
     retry_count_web_search = state.get('retry_count_web_search', 0)
-    if (not web_search_results or web_search_results == "NO Info") and retry_count_web_search <2:
-        # Incrementa il contatore dei retry
+    if (not web_info or web_info == "NO Info") and retry_count_web_search < 2:
         return "retry"
     return "end"
 
 
-# Funzione per controllare se continuare
+# Function to check whether to continue
 def should_web_search(state:AgentState):
     rag_answer = state.get('rag_answer', '')
     if not rag_answer or "no info available" in rag_answer.lower():
@@ -375,7 +341,7 @@ def extract_keywords_youtube(state:AgentState):
    log_state("extract_keywords_youtube", state)
    query = state['full_query']
    previous_keywords = state.get('keywords_youtube', '')
-    # Costruisci il prompt
+    # Build the prompt
    prompt = f"""From the following user medical situation: '{query}', extract the most relevant keywords to optimize the search for a video on YouTube. 
     Return just a Json object with the key: 'keywords'
     Here are examples of user queries and the corresponding optimized output:""" + \
@@ -384,7 +350,7 @@ def extract_keywords_youtube(state:AgentState):
        Output : {"keywords": "panic attack, first aid"}
     2. Query: "What should I do if I get stung by a bee?"
        Output : {"keywords": "bee sting treatment, first aid"}
-    3. Query: "Cosa succede se sono stato punto da un ape?"
+    3. Query: "What happens if I was stung by a bee?"
        Output : {"keywords": "bee sting treatment, first aid"}
     3. Query: "How to treat a deep cut made with a knife?"
        Output : {"keywords": "knife deep cut treatment, first aid"}
@@ -402,21 +368,32 @@ def extract_keywords_youtube(state:AgentState):
    if previous_keywords:
         prompt += f" Previous search with keywords '{previous_keywords}' returned no results. Try a different search query."
    
-    # Chiamata al modello LLM
+    # Call the LLM model.
    response = llm_70b.invoke([HumanMessage(content=prompt)])
-   return {"keywords_youtube": json.loads(response.content)["keywords"], "retry_count_youtube" : state["retry_count_youtube"]+1}
+   try:
+       # Strip markdown fences if present before parsing
+       clean = response.content.strip().replace("```json", "").replace("```", "").strip()
+       keywords = json.loads(clean)["keywords"]
+   except (json.JSONDecodeError, KeyError):
+    # Fall back to a truncated version of the raw query
+       keywords = query[:50]
+
+   return {
+       "keywords_youtube": keywords,
+       "retry_count_youtube": state["retry_count_youtube"] + 1
+   }
 
 
-# Funzione per controllare se continuare
+# Function to check whether to continue
 def should_continue_youtube(state:AgentState):
     search_results = state.get('search_results', '')
     retry_count_youtube = state.get('retry_count_youtube', 0)
-    if (not search_results or "No videos found" in search_results) and retry_count_youtube <2:
+    if (not search_results or "No videos found" in search_results) and retry_count_youtube < 2:
         return "retry"
-    return "end"
+    return "end" 
 
 
-# Funzione per controllare se continuare
+# Function to check whether to continue
 def should_find_hospital(state:AgentState):
     severity = state.get('severity')
     if severity>2:
@@ -434,25 +411,32 @@ def create_response_from_web_search(state:AgentState):
 
 def search_youtube_videos(state:AgentState) -> str:
     """
-    Cerca video su YouTube da una lista certificata di canali affidabili.
+    Search for videos on YouTube from a certified list of trusted channels.
 
     Args:
-        query (str): Una versione semplificata e in inglese, adatta per una ricerca su youtube, della query di ricerca fornita dall'utente.
-
+        query (str): A simplified English version of the user's query, 
+        optimised for a YouTube search.
     Returns:
-        str: Un di link utile rispetto alla query, o un messaggio che indica che non sono stati trovati video.
+        str:  A useful video link related to the query, or a message 
+        indicating that no videos were found.
     """
     #log_state("search_youtube_videos", state)
     keywords = state['keywords_youtube']
     print(f"keywords: {keywords}")
     if not isinstance(keywords, str):
-        return "Nessun video pertinente trovato per la query specificata nei canali consentiti."
+        fallback = f"https://www.youtube.com/results?search_query=first+aid"
+        return {"search_results": fallback, "video_title": "First Aid Videos"}
+    
     YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
-    allowed_channels=['UCwywRelPfy7U8jAI312J_Xw', #First Aid,
-                      'UCQK834Q3xqlo85LJqrEd7fw' #ChatterDocs
-                      ]  #'UCTVZkcCKSqFD0TTJ8BjYLDQ' Croce Rossa, 
-    max_results = 3
-    prompt = """
+    allowed_channels=[
+        'UCwywRelPfy7U8jAI312J_Xw',  # First Aid
+        'UCQK834Q3xqlo85LJqrEd7fw',  # ChatterDocs
+        'UCVVXqSUGEr7oYBR3PGNqhAg',  # American Red Cross
+        'UCqDFgQMSplDoKJFsxh6MUtA',  # St John Ambulance
+        'UC6107grRI4m0o2-emgoDnAA',  # Skill Share (medical)
+    ]  #'UCTVZkcCKSqFD0TTJ8BjYLDQ' Croce Rossa, 
+    max_results = 5
+    relevance_prompt = """
     You are tasked with determining if a YouTube video is relevant to a described medical situation. The situation provides details about a **medical problem affecting a person**. Analyze the situation and the video title, and decide if the video could be useful. Respond strictly with "YES" or "NO". Do not provide explanations or additional information.
 
     ### Guidelines:
@@ -489,82 +473,128 @@ def search_youtube_videos(state:AgentState) -> str:
     Medical Situation: {query}  
     Video Title: {video_title}
     """
-    try:
-        for channel_id in allowed_channels:
-            params = {
-                "part": "snippet",
-                "q": keywords,
-                "channelId": channel_id,
-                "maxResults": max_results,
-                "type": "video",
-                "key": state['youtube_api_key'],
-            }
+    def try_search(channel_id=None):
+        params = {
+            "part": "snippet",
+            "q": keywords,
+            "maxResults": max_results,
+            "type": "video",
+            "key": state['youtube_api_key'],
+        }
+        if channel_id:
+            params["channelId"] = channel_id
 
+        try:
             response = requests.get(YOUTUBE_SEARCH_URL, params=params)
             data = response.json()
+            if "items" not in data or len(data["items"]) == 0:
+                return None, None
 
-            # Controlla se ci sono risultati
-            if "items" in data and len(data["items"]) > 0:
-                for item in data["items"]:
-                    video_id = item["id"]["videoId"]
-                    video_title = item["snippet"]["title"]
-                    response = llm_70b.invoke([HumanMessage(content=prompt.format(query=state['full_query'], video_title=video_title))]).content
-                    if response.strip().lower() == 'yes':
-                        return {"search_results": f"https://www.youtube.com/watch?v={video_id}",
-                                "video_title": video_title}
-    except requests.exceptions.RequestException as e:
-        return {"search_results": f"Error during YouTube search: {str(e)}", "video_title": None}
-    return {"search_results": "No relevant videos found for the given query on the allowed channels.", "video_title": None}
+            for item in data["items"]:
+                video_id = item["id"]["videoId"]
+                video_title = item["snippet"]["title"]
+                check = llm_70b.invoke([HumanMessage(content=relevance_prompt.format(
+                    query=state['full_query'],
+                    video_title=video_title
+                ))]).content
+                if 'yes' in check.strip().lower():
+                    return f"https://www.youtube.com/watch?v={video_id}", video_title
+        except Exception as e:
+            print(f"YouTube search error: {e}")
+        return None, None
 
+    # 1️⃣ Try allowed channels first
+    for channel_id in allowed_channels:
+        url, title = try_search(channel_id)
+        if url:
+            return {"search_results": url, "video_title": title}
 
-def get_google_maps_url(state:AgentState):
-    """
-    Trova l'ospedale più vicino utilizzando la Google Places API.
+    # 2️⃣ Fallback — unrestricted search
+    print("⚠️ No video in allowed channels, trying general search...")
+    url, title = try_search(channel_id=None)
+    if url:
+        return {"search_results": url, "video_title": title}
 
-    Args:
-        lat (float): Latitudine dell'utente.
-        lng (float): Longitudine dell'utente.
-        api_key (str): Google Maps API Key.
-
-    Returns:
-        dict: Informazioni sull'ospedale più vicino o un messaggio di errore.
-    """
-    # URL dell'API di Google Places
-    places_url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-
-    lat, lng = state['user_location']
-    google_maps_api_key = state['google_maps_api_key']
-    # Parametri della richiesta
-    params = {
-        "location": f"{lat},{lng}",  # Latitudine e longitudine
-        "radius": 7000,             # Raggio di ricerca in metri (es. 7km)
-        "type": "hospital",         # Tipo di luogo da cercare
-        "key": google_maps_api_key,             # Google API Key
+    fallback_search_url = f"https://www.youtube.com/results?search_query={keywords.replace(' ', '+')}"
+    return {
+        "search_results": fallback_search_url,
+          "video_title": f"First Aid: {keywords}"
     }
 
-    try:
-        # Invia la richiesta
-        response = requests.get(places_url, params=params)
-        data = response.json()
+def get_google_maps_url(state: AgentState):
+    lat, lng = state['user_location']
+    print(f"🏥 Hospital search - lat: {lat}, lng: {lng}")
 
-        # Controlla se ci sono risultati
-        if "results" in data and len(data["results"]) > 0:
-            nearest_hospital = data["results"][0]  # Il primo risultato è il più vicino
-            hospital_name = nearest_hospital["name"]
-            location = nearest_hospital["geometry"]["location"]
-            return {
-                "hospital_name": hospital_name,
-                "google_maps_url": f"https://www.google.com/maps?q={location['lat']},{location['lng']}",
-            }
-        else:
-            return {"google_maps_url": "No hospitals found nearby."}
-    except requests.exceptions.RequestException as e:
-        return {"google_maps_url": f"Request failed: {str(e)}"}
+    if lat is None or lng is None:
+        print("❌ No location provided")
+        return {"hospital_name": None, "google_maps_url": None}
+
+    # ✅ Multiple Overpass endpoints to try if one is rate-limited
+    overpass_endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    ]
+
+    for radius in [7000, 15000, 25000]:
+        for endpoint in overpass_endpoints:
+            overpass_query = f"""
+            [out:json][timeout:25];
+            (
+              node["amenity"="hospital"](around:{radius},{lat},{lng});
+              way["amenity"="hospital"](around:{radius},{lat},{lng});
+              relation["amenity"="hospital"](around:{radius},{lat},{lng});
+            );
+            out center 1;
+            """
+            try:
+                response = requests.post(  # ✅ POST is more reliable than GET for Overpass
+                    endpoint,
+                    data={"data": overpass_query},
+                    timeout=25
+                )
+                print(f"🌐 {endpoint} — status: {response.status_code}, length: {len(response.text)}")
+
+                if response.status_code != 200 or not response.text.strip():
+                    continue  # try next endpoint
+
+                data = response.json()
+                elements = data.get("elements", [])
+                print(f"🏥 Radius {radius}m — {len(elements)} results")
+
+                if elements:
+                    hospital = elements[0]
+                    hospital_name = hospital.get("tags", {}).get("name", "Nearest Hospital")
+
+                    if hospital.get("type") == "node":
+                        h_lat = hospital.get("lat")
+                        h_lng = hospital.get("lon")
+                    else:
+                        center = hospital.get("center", {})
+                        h_lat = center.get("lat")
+                        h_lng = center.get("lon")
+
+                    if h_lat and h_lng:
+                        osm_url = f"https://www.openstreetmap.org/directions?from={lat},{lng}&to={h_lat},{h_lng}"
+                        print(f"✅ Found: {hospital_name}")
+                        return {"hospital_name": hospital_name, "google_maps_url": osm_url}
+
+            except Exception as e:
+                print(f"⚠️ Endpoint {endpoint} failed: {e}")
+                continue
+
+    # ✅ Guaranteed fallback — direct OSM search link, always works
+    print("⚠️ All Overpass endpoints failed — using OSM search fallback")
+    fallback_url = f"https://www.openstreetmap.org/search?query=hospital#map=13/{lat}/{lng}"
+    return {
+        "hospital_name": "Nearest hospitals (tap to search)",
+        "google_maps_url": fallback_url
+    }
     
 
 def start_emergency_bot(state:AgentState):
-    # Nodo di coordinamento iniziale, ritorna lo stato invariato
-    return state
+    # Initial coordination node, returns the state unchanged.
+    return {}
 
 
 def combine_results(state:AgentState):
@@ -581,24 +611,27 @@ def combine_results(state:AgentState):
 
 
 def create_emergency_agent():
-    # Creazione del grafo
     graph = StateGraph(AgentState)
 
-    # Nodo iniziale per avviare i flussi paralleli
+    # ✅ 1. ADD ALL NODES FIRST
     graph.add_node("start_emergency_bot", start_emergency_bot)
-
-    # Setta "start_emergency_bot" come entry point
-    graph.set_entry_point("start_emergency_bot")
-
-    # Aggiunta dei nodi
     graph.add_node("extract_keywords_youtube", extract_keywords_youtube)
     graph.add_node("search_youtube_videos", search_youtube_videos)
     graph.add_node("answer_from_rag", answer_from_rag)
     graph.add_node("web_search", web_search)
     graph.add_node("create_response_from_web_search", create_response_from_web_search)
+    graph.add_node("extract_keywords_web_search", extract_keywords_web_search)
+    graph.add_node("get_google_maps_url", get_google_maps_url)
+    graph.add_node("combine_results", combine_results)
 
+    # ✅ 2. SET ENTRY POINT
+    graph.set_entry_point("start_emergency_bot")
 
+    # ✅ 3. ADD EDGES
+
+    # YouTube flow
     graph.add_edge("extract_keywords_youtube", "search_youtube_videos")
+
     graph.add_conditional_edges(
         "search_youtube_videos",
         should_continue_youtube,
@@ -608,14 +641,7 @@ def create_emergency_agent():
         }
     )
 
-    # Secondo agente (Location)
-    graph.add_node("get_google_maps_url", get_google_maps_url)
-
-    # Terzo agente (Combinazione risultati)
-    graph.add_node("combine_results", combine_results)
-
-    # Integrazione flussi paralleli
-    graph.add_edge("get_google_maps_url", "combine_results")
+    # RAG + Web fallback
     graph.add_conditional_edges(
         "answer_from_rag",
         should_web_search,
@@ -625,8 +651,8 @@ def create_emergency_agent():
         }
     )
 
-    graph.add_node("extract_keywords_web_search", extract_keywords_web_search)
     graph.add_edge("extract_keywords_web_search", "web_search")
+
     graph.add_conditional_edges(
         "web_search",
         should_continue_web_search,
@@ -635,28 +661,33 @@ def create_emergency_agent():
             "end": "create_response_from_web_search",
         }
     )
+
     graph.add_edge("create_response_from_web_search", "combine_results")
 
-    # Collegamenti ai flussi paralleli
+    # Location flow
+    graph.add_edge("get_google_maps_url", "combine_results")
+
+    # Start node branching
     graph.add_edge("start_emergency_bot", "extract_keywords_youtube")
+    graph.add_edge("start_emergency_bot", "answer_from_rag")
+
     graph.add_conditional_edges(
         "start_emergency_bot",
         should_find_hospital,
-        {
+       {
             "high_severity": "get_google_maps_url",
             "low_severity": "combine_results",
         }
     )
-    graph.add_edge("start_emergency_bot", "answer_from_rag")
 
+    # ✅ 4. FINISH
     graph.set_finish_point("combine_results")
 
-    # Compilazione del grafo
     app = graph.compile()
-    
-    # Store the image in memory using BytesIO
-    img_bytes = app.get_graph().draw_mermaid_png()
-    with open('presentation/agents/specialized.png', 'wb') as f:
-        f.write(img_bytes)
+
+    # Optional visualization
+    #img_bytes = app.get_graph().draw_mermaid_png()
+    #with open('presentation/agents/specialized.png', 'wb') as f:
+        #f.write(img_bytes)
 
     return app

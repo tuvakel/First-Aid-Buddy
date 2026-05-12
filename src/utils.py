@@ -8,135 +8,64 @@ import json
 import os
 import re
 from google.cloud import storage
-from google.auth import credentials
+
 from datetime import datetime
-from gtts import gTTS
+
 import requests
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage
 
 
-def get_latest_commit_hash(github_repo: str):
-    try:
-        response = requests.get(f"https://api.github.com/repos/{github_repo}/commits?per_page=1")
-        response.raise_for_status()
-        commits = response.json()
-        return commits[0]['sha']
-    except:
-        return None
-
-
-def get_previous_commit_hash(last_commit_file: str):
-    if os.path.exists(last_commit_file):
-        try:
-            with open(last_commit_file, 'r') as file:
-                return file.read().strip()
-        except:
-            return None
-    return None
-
-
-def save_commit_hash(commit_hash: str, last_commit_file: str):
-    commit_dir = os.path.dirname(last_commit_file)
-    if not os.path.exists(commit_dir):
-        os.makedirs(commit_dir)
-    try:
-        with open(last_commit_file, 'w') as file:
-            file.write(commit_hash)
-    except:
-        pass
-
-
-def get_current_version(version_file: str):
-    if os.path.exists(version_file):
-        try:
-            with open(version_file, 'r') as file:
-                return file.read().strip()
-        except:
-            return "v0.1.0"
-    return "v0.1.0"
-
-
-def increment_version(version):
-    try:
-        version_parts = version.lstrip('v').split('.')
-        major, minor, patch = map(int, version_parts)
-        patch += 1
-        new_version = f"v{major}.{minor}.{patch}"
-        return new_version
-    except:
-        return version
-
-
-def generate_app_id(github_repo: str, last_commit_file: str, version_file: str):
-    previous_commit_hash = get_previous_commit_hash(last_commit_file)
-    current_commit_hash = get_latest_commit_hash(github_repo)
-
-    current_version = get_current_version(version_file)
-
-    if current_commit_hash:
-        if previous_commit_hash != current_commit_hash:
-            new_version = increment_version(current_version)
-            save_commit_hash(current_commit_hash, last_commit_file)
-            with open(version_file, 'w') as file:
-                file.write(new_version)
-            return new_version
-        else:
-            return current_version if current_version != "Unknown" else "Unknown"
-    return "Unknown"
 
 
 def get_language(location):
+    """
+    Detect country and location details from GPS coordinates via Nominatim.
+    Always returns English as the UI language.
+    Falls back safely if location is unavailable or the API call fails.
+    """
     if location == (None, None):
-        return 'en', None, None 
-    else:
-        url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
-        headers = {
-            'User-Agent': 'LLamaFirstAid/0.1'
-        }
-        response = requests.get(url, headers=headers)
+        return 'en', None, None
+
+    url = f"https://nominatim.openstreetmap.org/reverse?lat={location[0]}&lon={location[1]}&format=json&addressdetails=1"
+    headers = {'User-Agent': 'FirstAidBuddy/1.0'}
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
             country = data.get('address', {}).get('country', None)
-            detailed_location = data.get('address', {}).get('county', None) \
-                + ', ' + data.get('address', {}).get('state', None)  \
-                + ', ' + data.get('address', {}).get('country', None)
-            if country.lower() == 'italia':
-                return 'it', detailed_location, country
-            else: return 'en', detailed_location, country
+            address = data.get('address', {})
+            detailed_location = ', '.join(filter(None, [
+                address.get('county'),
+                address.get('state'),
+                address.get('country')
+            ]))
+            return 'en', detailed_location, country
         else:
-            print(f"Error getting language from location") 
+            print(f"Nominatim returned status {response.status_code}")
             return 'en', None, None
 
+    except Exception as e:
+        print(f"Error getting language from location: {e}")
+        return 'en', None, None
+        
 
-def get_sidebar(language):
-    if (language == "it"):
-        # st.sidebar.header("Modalità")
-        # allow_images = st.sidebar.checkbox("Abilita il caricamento delle immagini (EU-NON COMPLIANT)")
-        st.sidebar.header("**Dettagli**")
-        st.sidebar.write(""" 
-            Sei pronto a intervenire in un'emergenza sanitaria?
-            
-            Con l'app **LLAMA** (Life-saving Live Assistant for Medical Assistance) **FIRST AID**, 
-            avrai un operatore sanitario esperto sempre al tuo fianco. Che tu sia un neofita o abbia già esperienza nel primo soccorso, 
-            l'app ti guiderà passo dopo passo nella gestione di situazioni critiche, offrendoti consigli rapidi e precisi. 
-            Grazie a un'interfaccia intuitiva, potrai ricevere risposte in tempo reale alle domande cruciali e ottenere le istruzioni giuste per 
-            intervenire al meglio. Inoltre, avrai accesso a video tutorial utili per apprendere e perfezionare le manovre di soccorso. Non lasciare
-            nulla al caso, con **LLAMA** ogni emergenza diventa più gestibile!
-        """)
-    else:
-        # st.sidebar.header("Modalità")
-        # allow_images = st.sidebar.checkbox("Enable image upload (EU-NON COMPLIANT)")
-        st.sidebar.header("**Details**")
-        st.sidebar.write(""" 
+
+def get_sidebar():
+    
+    st.sidebar.header("**Details**")
+    st.sidebar.write(""" 
             Are you ready to respond in a medical emergency?
             
-            With the **LLAMA** app (Life-saving Live Assistant for Medical Assistance) **FIRST AID**, 
+            With the First-Aid Buddy app, 
             you'll have an experienced healthcare operator by your side at all times. Whether you're a beginner or already have experience in first aid, 
             the app will guide you step by step in managing critical situations, providing you with quick and accurate advice. 
             Thanks to an intuitive interface, you’ll be able to receive real-time answers to crucial questions and get the right instructions to 
             respond effectively. Additionally, you'll have access to useful video tutorials to learn and perfect lifesaving techniques. Don’t leave 
-            anything to chance, with **LLAMA** every emergency becomes more manageable!
-        """)
+            anything to chance, with First-Aid Buddy every emergency becomes more managableeable!
+    """)
 
 
 def resize_image(image_file, new_width):
@@ -164,12 +93,21 @@ def load_template(template_path: str) -> Template:
     template = env.get_template(os.path.basename(template_path))
     return template
 
-
 def init_LLM(API_KEY=None):
     client = Groq(
-        api_key= API_KEY,
+        api_key=API_KEY,
     )
     return client
+
+MODELS = [
+    "llama-3.3-70b-versatile",  # best quality, try first
+    "gemma2-9b-it",              # fallback 1
+    "llama3-8b-8192",            # fallback 2
+]
+
+def init_chat_LLM(api_key):
+    return ChatGroq(model=MODELS[0], api_key=api_key)
+
 
 
 def translate(llm: Groq, llm_model_name, temperature: float = 0.0, message: str = "", target_language: str = "") -> str:
@@ -193,14 +131,32 @@ def translate(llm: Groq, llm_model_name, temperature: float = 0.0, message: str 
         Do not add any additional information in the response.
     """
 
-    response = llm.chat.completions.create(
-        model=llm_model_name,
-        messages=[{"role": "user", "content": translate_command}],
-        temperature=temperature,
-        stop=None
-    )
+    models_to_try = [llm_model_name] + [m for m in MODELS if m != llm_model_name]
 
-    response_content = response.choices[0].message.content
+    response_content = None
+
+    for model in models_to_try:
+        try:
+            response = llm.chat.completions.create(
+                model=model,        # ✅ tries each model in order
+                messages=[{"role": "user", "content": translate_command}],
+                temperature=temperature,
+                stop=None
+            )
+            response_content = response.choices[0].message.content
+            print(f"✅ translate() using model: {model}")
+            break   # ✅ stop trying once one works
+
+        except Exception as e:
+            if "rate_limit_exceeded" in str(e):
+                print(f"⚠️ {model} rate limited in translate(), trying next...")
+                continue    # try next model
+            raise e         # non-rate-limit error — crash immediately
+
+    if response_content is None:
+        raise Exception("❌ All models rate limited during translation.")
+
+    
 
     try:
         translated_query_match = re.search(r'"translated_query"\s*:\s*"([^"]+)', response_content)
@@ -274,80 +230,35 @@ def get_medical_class(llm: Groq, llm_model_name, temperature: float = 0.0, chat_
 
     return medical_class
 
-
-mapping = {
-    'Ã¨': 'è',
-    'Ã ': 'à',
-    'Ã ': 'à',
-    'Ã©': 'é',
-    'Ã¹': 'ù',
-    'Ã²': 'ò',
-    'Ã¬': 'ì',
-    'Ã§': 'ç',
-    'Ã³': 'ó',
-    'Ã¤': 'ä',
-    'Ã¼': 'ü',
-    'Ã«': 'ë',
-    'Ã¢': 'â',
-    'Ãª': 'ê',
-    'Ã®': 'î',
-    'Ã´': 'ô',
-    'Ã¶': 'ö',
-    'ÃŸ': 'ß',
-    'Ã¸': 'ø',
-    'Ã…': 'Å',
-    'Ã†': 'Æ',
-    'Â©': '©',
-    'Â®': '®',
-    'â‚¬': '€'
+# ✅ Add this dictionary
+EMERGENCY_NUMBERS = {
+    "Kenya": "999",
+    "United States": "911",
+    "United Kingdom": "999",
+    "Australia": "000",
+    "Canada": "911",
+    "Germany": "112",
+    "France": "15",
+    "Italy": "118",
+    "Spain": "112",
+    "India": "108",
+    "South Africa": "10177",
+    "Nigeria": "199",
+    "Ghana": "193",
+    "Uganda": "999",
+    "Tanzania": "114",
+    "Ethiopia": "907",
+    "default": "112"  # ✅ international standard fallback
 }
 
-def testo_to_utf8(testo, mapping = mapping):
-    if testo:
-        for errato, corretto in mapping.items():
-            testo = testo.replace(errato, corretto)
-    else:
-        testo = ""
-    return testo
-
-
-def transcribe_audio(llm, llm_audio_model_name, audio_file_path, trscb_message, language):
-    try:
-        with open(audio_file_path, "rb") as file:
-            transcription = llm.audio.transcriptions.create(
-                file=(os.path.basename(audio_file_path), file.read()),
-                model=llm_audio_model_name,
-                prompt=trscb_message,
-                response_format="text",
-                language=language,
-            )
-        return transcription  # This is now directly the transcription text
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        return None
-    
-
-def save_uploaded_audio(audio_bytes, output_filename):
-    with open(output_filename, "wb") as f:
-        f.write(audio_bytes)
-
-    return output_filename
-
-
-def text_to_speech(text: str, language = 'it', audio_file = "output.mp3"):
-    # Converte il testo in audio
-    tts = gTTS(text=text, lang=language, slow=False)
-    # Salva l'audio in un file
-    tts.save(audio_file)
-    return audio_file
-
-
-def extract_youtube_link(response_text):
-    youtube_url_pattern = r'(https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+)'
-    youtube_urls = re.findall(youtube_url_pattern, response_text)
-    
-    # Return the first YouTube URL found or None if no link is found
-    return youtube_urls[0] if youtube_urls else None
+def get_emergency_number(country: str) -> str:
+    if not country:
+        return EMERGENCY_NUMBERS["default"]
+    # ✅ case-insensitive match
+    for key, number in EMERGENCY_NUMBERS.items():
+        if key.lower() == country.lower():
+            return number
+    return EMERGENCY_NUMBERS["default"]
 
 
 # 1. Initialize GCS Client
@@ -364,7 +275,7 @@ def create_session_filename(session_id: str):
     return f"session_{session_id}.json"
 
 # 3. Write a new session data file either locally or within Google Cloud Storage (GCS)
-def store_session_data(session_id: str, app_version: str, user_location: list, country:str,
+def store_session_data(session_id: str, user_location: list, country:str,
                         medical_class: str, severity: int,
                         hospital_details: list, youtube_video_details: list, query: str, response: str,
                         response_time: float, session_filename: str, local_path_name: str = None,
@@ -386,7 +297,7 @@ def store_session_data(session_id: str, app_version: str, user_location: list, c
         if not session_found:
             new_session = {
                 "session_id": session_id,
-                "app_version": app_version,
+                
                 "location": user_location,
                 "country": country,
                 "timestamp": datetime.now().isoformat(),
